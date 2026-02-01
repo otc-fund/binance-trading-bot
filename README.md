@@ -8,6 +8,7 @@ A comprehensive trading bot framework for Binance exchange with advanced pattern
 - **Volatility Filter**: Checks volatility of the 3 candles before the engulfed candle to avoid trading during high volatility periods
 - **Limit Orders**: Places limit orders at the opening price of the engulfed (previous) candle
 - **Risk Management**: Configurable risk parameters and position sizing
+- **Stop Loss & Take Profit**: Automatic stop loss and take profit orders with configurable percentages
 - **Binance API Integration**: Full integration with Binance API for trading operations
 
 ## Requirements
@@ -50,3 +51,12 @@ The bot implements a sophisticated engulfing pattern strategy:
 3. Ensures the engulfing candle exceeds the previous candle's high (for bullish) or low (for bearish)
 4. Applies a volatility filter to avoid trading during high volatility periods
 5. Places limit orders at the opening price of the engulfed candle
+
+## Risk Management
+
+The bot includes robust risk management features:
+
+- **Stop Loss**: Automatically places stop loss orders at a configurable percentage below entry price for long positions (or above for short positions)
+- **Take Profit**: Automatically places take profit orders at a configurable percentage above entry price for long positions (or below for short positions)
+- **Position Sizing**: Calculates position size based on account balance and risk parameters
+- **Configurable Parameters**: All risk parameters can be adjusted in the configuration file
