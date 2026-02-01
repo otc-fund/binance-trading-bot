@@ -155,18 +155,18 @@ class PatternDetector:
         # Calculate the body of the engulfed candle (absolute difference between open and close)
         prev_body_size = abs(prev_close - prev_open)
         
-        # Calculate entry price offset as 10% of the body
-        entry_price_offset = prev_body_size * 0.10
+        # Calculate entry price offset as 90% of the body
+        entry_price_offset = prev_body_size * 0.90
         
         # Check for engulfing patterns only using the configured timeframe
         engulfing_signal = await self.detect_engulfing_pattern(symbol, interval)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
-            # For bullish engulfing, place buy limit at 10% LOWER than the open of the engulfed candle
+            # For bullish engulfing, place buy limit at 90% LOWER than the open of the engulfed candle
             entry_price = prev_open - entry_price_offset
             return 'BUY', entry_price
         elif engulfing_signal == 'BEARISH_ENGULFING':
-            # For bearish engulfing, place sell limit at 10% HIGHER than the open of the engulfed candle
+            # For bearish engulfing, place sell limit at 90% HIGHER than the open of the engulfed candle
             entry_price = prev_open + entry_price_offset
             return 'SELL', entry_price
         else:
