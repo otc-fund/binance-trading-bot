@@ -204,7 +204,7 @@ class BinanceTradingBot:
         avg_range = total_range / len(recent_candles)
         return avg_range
 
-    async def detect_engulfing_pattern(self, symbol: str, interval: str = Client.KLINE_INTERVAL_1HOUR) -> str:
+    async def detect_engulfing_pattern(self, symbol: str, interval: str = Client.KLINE_INTERVAL_15MINUTE) -> str:
         """
         Detect bullish and bearish engulfing patterns with exactly 130% body coverage
         and check for excessive volatility in the 5 candles before the engulfed candle
@@ -284,7 +284,7 @@ class BinanceTradingBot:
             'BUY', 'SELL', or 'HOLD'
         """
         # Check for engulfing patterns only
-        engulfing_signal = await self.detect_engulfing_pattern(symbol, Client.KLINE_INTERVAL_1HOUR)
+        engulfing_signal = await self.detect_engulfing_pattern(symbol, Client.KLINE_INTERVAL_15MINUTE)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
             return 'BUY'
@@ -301,7 +301,7 @@ class BinanceTradingBot:
             tuple: (signal, limit_price) where signal is 'BUY', 'SELL', or 'HOLD' and limit_price is float or None
         """
         # Get the last 2 candles to determine the engulfing pattern and the opening price of the engulfed candle
-        klines = await self.get_klines(symbol, Client.KLINE_INTERVAL_1HOUR, 3)
+        klines = await self.get_klines(symbol, Client.KLINE_INTERVAL_15MINUTE, 3)
         if len(klines) < 2:
             return 'HOLD', None
         
@@ -313,7 +313,7 @@ class BinanceTradingBot:
         prev_open = float(prev_candle[1])  # Opening of the engulfed candle
         
         # Check for engulfing patterns only
-        engulfing_signal = await self.detect_engulfing_pattern(symbol, Client.KLINE_INTERVAL_1HOUR)
+        engulfing_signal = await self.detect_engulfing_pattern(symbol, Client.KLINE_INTERVAL_15MINUTE)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
             # For bullish engulfing, place buy limit at the opening of the engulfed (previous) candle
@@ -416,7 +416,7 @@ class BinanceTradingBot:
         """
         # Get the last 2 candles to determine the engulfed candle
         # klines[-2] is the engulfed candle, klines[-1] is the engulfing candle
-        klines = await self.get_klines(symbol, Client.KLINE_INTERVAL_1HOUR, 3)
+        klines = await self.get_klines(symbol, Client.KLINE_INTERVAL_15MINUTE, 3)
         if len(klines) < 2:
             self.logger.warning(f"Not enough kline data to set stop-loss for {symbol}")
             return
