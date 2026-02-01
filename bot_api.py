@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from trading_bot import BinanceTradingBot
 from modules.database import DatabaseManager
 from modules.performance_tracker import PerformanceTracker
+from config_manager import SecureConfigManager
 
 
 import logging
@@ -71,46 +72,60 @@ class BotAPI:
         
         @self.app.route('/api/config', methods=['GET', 'POST'])
         def get_set_config():
+            config_manager = SecureConfigManager()
             config_path = os.path.join(os.path.dirname(__file__), 'config.json')
             
             if request.method == 'POST':
                 # Update config
                 new_config = request.json
+                # Save as temporary file, then encrypt
                 with open(config_path, 'w') as f:
                     json.dump(new_config, f, indent=2)
+                
+                # Re-encrypt the config file
+                try:
+                    config_manager.encrypt_config()
+                except Exception as e:
+                    # If encryption fails, save as unencrypted but warn
+                    print(f"Warning: Could not encrypt config: {e}")
+                
                 return jsonify({'status': 'success'})
             
             # Get config
-            if os.path.exists(config_path):
-                with open(config_path, 'r') as f:
-                    config = json.load(f)
-            else:
-                # Default config
-                config = {
-                    "api_key": "",
-                    "api_secret": "",
-                    "testnet": True,
-                    "symbols": ["BTCUSDT", "ETHUSDT"],
-                    "leverage": 4,
-                    "use_leverage": True,
-                    "timeframe": "15m",
-                    "risk_management": {
-                        "max_position_size_margin": 0.03,
-                        "max_daily_loss": 0.05,
-                        "stop_loss_pct": 0.02,
-                        "take_profit_pct": 0.05
-                    },
-                    "notifications": {
-                        "enable_notifications": False,
-                        "recipient_emails": [],
-                        "smtp": {
-                            "sender_email": "",
-                            "sender_password": "",  # Use app password for Gmail
-                            "server": "smtp.gmail.com",
-                            "port": 587
+            try:
+                config = config_manager.load_config()
+            except Exception as e:
+                # If loading encrypted config fails, try regular file
+                if os.path.exists(config_path):
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                else:
+                    # Default config
+                    config = {
+                        "api_key": "",
+                        "api_secret": "",
+                        "testnet": True,
+                        "symbols": ["BTCUSDT", "ETHUSDT"],
+                        "leverage": 4,
+                        "use_leverage": True,
+                        "timeframe": "15m",
+                        "risk_management": {
+                            "max_position_size_margin": 0.03,
+                            "max_daily_loss": 0.05,
+                            "stop_loss_pct": 0.02,
+                            "take_profit_pct": 0.05
+                        },
+                        "notifications": {
+                            "enable_notifications": False,
+                            "recipient_emails": [],
+                            "smtp": {
+                                "sender_email": "",
+                                "sender_password": "",  # Use app password for Gmail
+                                "server": "smtp.gmail.com",
+                                "port": 587
+                            }
                         }
                     }
-                }
             
             return jsonify(config)
         
@@ -223,37 +238,44 @@ class BotAPI:
         return jsonify({'status': 'paused'})
     
     def load_config(self):
-        """Load configuration from file"""
+        """Load configuration from file (with encryption support)"""
+        config_manager = SecureConfigManager()
         config_path = os.path.join(os.path.dirname(__file__), 'config.json')
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                return json.load(f)
-        else:
-            return {
-                "api_key": "",
-                "api_secret": "",
-                "testnet": True,
-                "symbols": ["BTCUSDT", "ETHUSDT"],
-                "leverage": 4,
-                "use_leverage": True,
-                "timeframe": "15m",
-                "risk_management": {
-                    "max_position_size_margin": 0.03,
-                    "max_daily_loss": 0.05,
-                    "stop_loss_pct": 0.02,
-                    "take_profit_pct": 0.05
-                },
-                "notifications": {
-                    "enable_notifications": False,
-                    "recipient_emails": [],
-                    "smtp": {
-                        "sender_email": "",
-                        "sender_password": "",  # Use app password for Gmail
-                        "server": "smtp.gmail.com",
-                        "port": 587
+        
+        try:
+            # Try to load using secure config manager (handles both encrypted and unencrypted)
+            return config_manager.load_config()
+        except Exception as e:
+            # If secure loading fails, try regular file loading
+            if os.path.exists(config_path):
+                with open(config_path, 'r') as f:
+                    return json.load(f)
+            else:
+                return {
+                    "api_key": "",
+                    "api_secret": "",
+                    "testnet": True,
+                    "symbols": ["BTCUSDT", "ETHUSDT"],
+                    "leverage": 4,
+                    "use_leverage": True,
+                    "timeframe": "15m",
+                    "risk_management": {
+                        "max_position_size_margin": 0.03,
+                        "max_daily_loss": 0.05,
+                        "stop_loss_pct": 0.02,
+                        "take_profit_pct": 0.05
+                    },
+                    "notifications": {
+                        "enable_notifications": False,
+                        "recipient_emails": [],
+                        "smtp": {
+                            "sender_email": "",
+                            "sender_password": "",  # Use app password for Gmail
+                            "server": "smtp.gmail.com",
+                            "port": 587
+                        }
                     }
                 }
-            }
     
     def get_binance_timeframe(self, timeframe_str):
         """Map string timeframe to Binance interval constant"""
