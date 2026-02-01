@@ -318,17 +318,35 @@ class BinanceTradingBot:
         curr_candle = klines[-1]       # Current candle (engulfing candle)
         
         # Parse candle data: [open_time, open, high, low, close, volume, ...]
-        prev_open = float(prev_candle[1])  # Opening of the engulfed candle
+        prev_open = float(prev_candle[1])
+        prev_high = float(prev_candle[2])
+        prev_low = float(prev_candle[3])
+        prev_close = float(prev_candle[4])
+        
+        # Calculate the body of the engulfed candle (absolute difference between open and close)
+        prev_body_size = abs(prev_close - prev_open)
+        
+        # Calculate entry price at 30% of the body from the open of the engulfed candle
+        # For bullish trades: 30% of the body above the open
+        # For bearish trades: 30% of the body below the open
+        if prev_close > prev_open:  # Previous candle was bullish (green)
+            # For bullish candle, 30% up from open for BUY, 30% down from open for SELL
+            entry_price_offset = prev_body_size * 0.30
+        else:  # Previous candle was bearish (red)
+            # For bearish candle, 30% up from open for BUY, 30% down from open for SELL
+            entry_price_offset = prev_body_size * 0.30
         
         # Check for engulfing patterns only using the configured timeframe
         engulfing_signal = await self.detect_engulfing_pattern(symbol)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
-            # For bullish engulfing, place buy limit at the opening of the engulfed (previous) candle
-            return 'BUY', prev_open
+            # For bullish engulfing, place buy limit at 30% of the body above the open of the engulfed candle
+            entry_price = prev_open + entry_price_offset
+            return 'BUY', entry_price
         elif engulfing_signal == 'BEARISH_ENGULFING':
-            # For bearish engulfing, place sell limit at the opening of the engulfed (previous) candle
-            return 'SELL', prev_open
+            # For bearish engulfing, place sell limit at 30% of the body below the open of the engulfed candle
+            entry_price = prev_open - entry_price_offset
+            return 'SELL', entry_price
         else:
             return 'HOLD', None  # Only trade on engulfing patterns
     
