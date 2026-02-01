@@ -56,7 +56,7 @@ The bot implements a sophisticated engulfing pattern strategy:
 
 The bot includes robust risk management features:
 
-- **Stop Loss**: Automatically places stop loss orders at a configurable percentage below entry price for long positions (or above for short positions)
+- **Stop Loss**: Automatically places stop loss orders at 2% from the low of the engulfed candle for long positions (or 2% from the high of the engulfed candle for short positions)
 - **Take Profit**: Automatically places take profit orders at a configurable percentage above entry price for long positions (or below for short positions)
 - **Position Sizing**: Calculates position size based on account balance and risk parameters
 - **Configurable Parameters**: All risk parameters can be adjusted in the configuration file
