@@ -22,12 +22,6 @@ def index():
     return render_template('index.html')
 
 
-@app.route('/')
-def index():
-    """Main dashboard page"""
-    return render_template('index.html')
-
-
 @app.route('/api/status')
 def get_bot_status():
     """Get current bot status from the bot API"""

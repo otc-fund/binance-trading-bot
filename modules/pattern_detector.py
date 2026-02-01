@@ -54,7 +54,7 @@ class PatternDetector:
     async def detect_engulfing_pattern(self, symbol: str, interval: str = None) -> str:
         """
         Detect bullish and bearish engulfing patterns with exactly 130% body coverage
-        and check for excessive volatility in the 5 candles before the engulfed candle
+        and check for excessive volatility in the 3 candles before the engulfed candle
         
         Returns:
             'BULLISH_ENGULFING', 'BEARISH_ENGULFING', or 'NONE'
@@ -63,23 +63,23 @@ class PatternDetector:
         if interval is None:
             interval = self.timeframe
             
-        # Get the last 7 candles (5 before engulfed + the engulfed + the engulfing)
-        klines = await self.get_klines(symbol, interval, 7)  # Get 7 to have 5 previous + 1 engulfed + 1 engulfing
-        if len(klines) < 7:
+        # Get the last 6 candles (3 before engulfed + the engulfed + the engulfing)
+        klines = await self.get_klines(symbol, interval, 6)  # Get 6 to have 3 previous + 1 engulfed + 1 engulfing
+        if len(klines) < 6:
             return 'NONE'
         
-        # Check volatility of the 5 candles before the engulfed candle (klines[-7], klines[-6], klines[-5], klines[-4], klines[-3])
-        prev_5_candles = klines[-7:-2]  # The 5 candles before the engulfed candle
-        volatility = await self.calculate_volatility(prev_5_candles)
+        # Check volatility of the 3 candles before the engulfed candle (klines[-6], klines[-5], klines[-4])
+        prev_3_candles = klines[-6:-3]  # The 3 candles before the engulfed candle
+        volatility = await self.calculate_volatility(prev_3_candles)
         
         # Calculate average price to normalize volatility measurement
         total_avg_price = 0.0
-        for candle in prev_5_candles:
+        for candle in prev_3_candles:
             open_price = float(candle[1])
             close_price = float(candle[4])
             total_avg_price += (open_price + close_price) / 2
         
-        avg_price = total_avg_price / len(prev_5_candles) if prev_5_candles else 1.0
+        avg_price = total_avg_price / len(prev_3_candles) if prev_3_candles else 1.0
         normalized_volatility = volatility / avg_price if avg_price > 0 else 0.0
         
         # Define a threshold for high volatility (e.g., if average range is more than 3% of price)

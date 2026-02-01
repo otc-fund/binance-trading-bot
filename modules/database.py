@@ -5,6 +5,7 @@ Handles all database operations for trade history and performance metrics
 
 import sqlite3
 import csv
+import threading
 from datetime import datetime
 from typing import Dict, List
 
@@ -12,19 +13,22 @@ from typing import Dict, List
 class DatabaseManager:
     def __init__(self, db_path: str = 'trading_bot.db'):
         self.db_path = db_path
-        self.connection = None
+        self.local = threading.local()  # Thread-local storage for database connections
+        self.lock = threading.Lock()  # Lock for thread-safe operations
+    
+    def get_db_connection(self):
+        """Get a database connection for the current thread"""
+        return sqlite3.connect(self.db_path, check_same_thread=False)
     
     def connect(self):
         """Connect to the database"""
-        self.connection = sqlite3.connect(self.db_path)
-        self._create_tables()
+        conn = self.get_db_connection()
+        self._create_tables_for_connection(conn)
+        conn.close()
     
-    def _create_tables(self):
+    def _create_tables_for_connection(self, conn):
         """Create necessary tables if they don't exist"""
-        if not self.connection:
-            return
-        
-        cursor = self.connection.cursor()
+        cursor = conn.cursor()
         
         # Create trades table
         cursor.execute('''
@@ -63,100 +67,108 @@ class DatabaseManager:
             )
         ''')
         
-        self.connection.commit()
+        conn.commit()
+    
+    def _create_tables(self):
+        """Create tables using the stored connection (for backward compatibility)"""
+        conn = self.get_db_connection()
+        self._create_tables_for_connection(conn)
+        conn.close()
     
     def insert_trade(self, symbol: str, signal: str, entry_price: float, quantity: float, 
                      exit_price: float, pnl: float, reason: str = ""):
         """Insert a trade record into the database"""
-        if not self.connection:
-            return
-        
-        timestamp = datetime.now().isoformat()
-        pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price != 0 else 0
-        
-        cursor = self.connection.cursor()
-        cursor.execute('''
-            INSERT INTO trades (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason))
-        
-        self.connection.commit()
+        with self.lock:  # Ensure thread-safe operations
+            conn = self.get_db_connection()
+            timestamp = datetime.now().isoformat()
+            pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price != 0 else 0
+            
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO trades (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason))
+            
+            conn.commit()
+            conn.close()
     
     def get_trade_history(self, limit: int = 100) -> List[Dict]:
         """Retrieve trade history from database"""
-        if not self.connection:
-            return []
-        
-        cursor = self.connection.cursor()
-        cursor.execute('''
-            SELECT * FROM trades 
-            ORDER BY timestamp DESC 
-            LIMIT ?
-        ''', (limit,))
-        
-        rows = cursor.fetchall()
-        columns = [description[0] for description in cursor.description]
-        
-        trades = []
-        for row in rows:
-            trade = dict(zip(columns, row))
-            trades.append(trade)
-        
-        return trades
+        with self.lock:  # Ensure thread-safe operations
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM trades 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ''', (limit,))
+            
+            rows = cursor.fetchall()
+            columns = [description[0] for description in cursor.description]
+            
+            trades = []
+            for row in rows:
+                trade = dict(zip(columns, row))
+                trades.append(trade)
+            
+            conn.close()
+            return trades
     
     def get_latest_performance_metrics(self) -> Dict:
         """Retrieve latest performance metrics from database"""
-        if not self.connection:
-            return {}
-        
-        cursor = self.connection.cursor()
-        cursor.execute('''
-            SELECT * FROM performance_metrics 
-            ORDER BY recorded_at DESC 
-            LIMIT 1
-        ''')
-        
-        row = cursor.fetchone()
-        if row:
-            columns = [description[0] for description in cursor.description]
-            return dict(zip(columns, row))
-        
-        return {}
+        with self.lock:  # Ensure thread-safe operations
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT * FROM performance_metrics 
+                ORDER BY recorded_at DESC 
+                LIMIT 1
+            ''')
+            
+            row = cursor.fetchone()
+            if row:
+                columns = [description[0] for description in cursor.description]
+                result = dict(zip(columns, row))
+            else:
+                result = {}
+            
+            conn.close()
+            return result
     
     def save_performance_snapshot(self, metrics: Dict):
         """Save current performance metrics to database"""
-        if not self.connection:
-            return
-        
-        cursor = self.connection.cursor()
-        cursor.execute('''
-            INSERT INTO performance_metrics (
-                total_trades, winning_trades, losing_trades, 
-                total_pnl, win_rate, avg_win, avg_loss, 
-                largest_win, largest_loss, sharpe_ratio, 
-                max_drawdown, profit_factor
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            metrics.get('total_trades', 0),
-            metrics.get('winning_trades', 0),
-            metrics.get('losing_trades', 0),
-            metrics.get('total_pnl', 0.0),
-            metrics.get('win_rate', 0.0),
-            metrics.get('avg_win', 0.0),
-            metrics.get('avg_loss', 0.0),
-            metrics.get('largest_win', 0.0),
-            metrics.get('largest_loss', 0.0),
-            metrics.get('sharpe_ratio', 0.0),
-            metrics.get('max_drawdown', 0.0),
-            metrics.get('profit_factor', 0.0)
-        ))
-        
-        self.connection.commit()
+        with self.lock:  # Ensure thread-safe operations
+            conn = self.get_db_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO performance_metrics (
+                    total_trades, winning_trades, losing_trades, 
+                    total_pnl, win_rate, avg_win, avg_loss, 
+                    largest_win, largest_loss, sharpe_ratio, 
+                    max_drawdown, profit_factor
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                metrics.get('total_trades', 0),
+                metrics.get('winning_trades', 0),
+                metrics.get('losing_trades', 0),
+                metrics.get('total_pnl', 0.0),
+                metrics.get('win_rate', 0.0),
+                metrics.get('avg_win', 0.0),
+                metrics.get('avg_loss', 0.0),
+                metrics.get('largest_win', 0.0),
+                metrics.get('largest_loss', 0.0),
+                metrics.get('sharpe_ratio', 0.0),
+                metrics.get('max_drawdown', 0.0),
+                metrics.get('profit_factor', 0.0)
+            ))
+            
+            conn.commit()
+            conn.close()
     
     def close(self):
         """Close the database connection"""
-        if self.connection:
-            self.connection.close()
+        if hasattr(self.local, 'connection'):
+            self.local.connection.close()
     
     def export_to_csv(self, filename: str = None):
         """Export trade history to CSV file"""
