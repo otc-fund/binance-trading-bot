@@ -33,14 +33,29 @@ Create a `config.json` file with your API credentials and trading parameters:
   "api_secret": "your_api_secret",
   "testnet": true,
   "symbols": ["BTCUSDT", "ETHUSDT"],
+  "timeframe": "15m",
+  "leverage": 4,
   "risk_management": {
-    "max_position_size": 0.1,
+    "max_position_size": 0.03,
     "max_daily_loss": 0.05,
-    "stop_loss_pct": 0.05,
-    "take_profit_pct": 0.10
+    "stop_loss_pct": 0.02,
+    "take_profit_pct": 0.05
   }
 }
 ```
+
+### Timeframe Options
+- "1m": 1 minute candles
+- "3m": 3 minute candles
+- "5m": 5 minute candles
+- "15m": 15 minute candles (default)
+- "30m": 30 minute candles
+- "1h": 1 hour candles
+- And more...
+
+### Leverage
+- Configurable leverage (default: 4x)
+- Combined with 3% position sizing for effective risk management
 
 ## Trading Strategy
 
