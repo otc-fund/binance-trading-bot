@@ -7,15 +7,17 @@ import asyncio
 import json
 import logging
 import os
-import sqlite3
 import sys
 from datetime import datetime
 from typing import Dict, List, Optional
-import csv
 
 from binance import AsyncClient, Client
 from binance.enums import *
-from binance.exceptions import BinanceAPIException
+
+from modules.database import DatabaseManager
+from modules.performance_tracker import PerformanceTracker
+from modules.pattern_detector import PatternDetector
+from modules.risk_manager import RiskManager
 
 
 class BinanceTradingBot:
@@ -48,43 +50,17 @@ class BinanceTradingBot:
         )
         self.logger = logging.getLogger(__name__)
         
+        # Initialize modules
+        self.db_manager = DatabaseManager()
+        self.performance_tracker = PerformanceTracker(self.db_manager)
+        self.pattern_detector = PatternDetector(None, self.timeframe)
+        self.risk_manager = RiskManager(None, True, self.leverage)
+        
         # Trading parameters
         self.symbols = []  # List of symbols to trade
-        self.strategies = {}  # Dictionary of trading strategies
         self.positions = {}  # Current positions
         self.balance = {}  # Account balance
         self.use_leverage = True  # Switch to enable/disable leverage (default: True)
-        self.risk_management = {
-            'max_position_size_spot': 0.10,  # Max 10% of account per position for spot trading
-            'max_position_size_margin': 0.03,  # Max 3% of account per position for margin trading (before leverage)
-            'max_daily_loss': 0.05,  # Max 5% daily loss
-            'stop_loss_pct': 0.02,  # 2% stop loss (though stop loss is handled by engulfing pattern)
-            'take_profit_pct': 0.05  # 5% take profit (though take profit is handled by 2.5R rule)
-        }
-        
-        # Performance tracking
-        self.trade_history = []  # Track all trades
-        self.performance_metrics = {
-            'total_trades': 0,
-            'winning_trades': 0,
-            'losing_trades': 0,
-            'total_pnl': 0.0,
-            'win_rate': 0.0,
-            'avg_win': 0.0,
-            'avg_loss': 0.0,
-            'largest_win': 0.0,
-            'largest_loss': 0.0,
-            'current_streak': 0,
-            'max_streak': 0,
-            'sharpe_ratio': 0.0,
-            'max_drawdown': 0.0,
-            'profit_factor': 0.0
-        }
-        self.initial_balance = None
-        self.current_balance = None
-        
-        # Database connection
-        self.db_connection = None
     
     async def initialize_client(self):
         """Initialize the Binance client"""
@@ -104,80 +80,17 @@ class BinanceTradingBot:
             
             # Initialize balance tracking
             await self.update_balances()
-            self.initial_balance = self.current_balance = self.get_usdt_balance()
+            
+            # Initialize modules with client
+            self.pattern_detector.client = self.client
+            self.risk_manager.client = self.client
             
             # Initialize database
-            await self.init_database()
+            self.db_manager.connect()
             
         except Exception as e:
             self.logger.error(f"Failed to initialize Binance client: {e}")
             raise
-    
-    async def init_database(self):
-        """Initialize SQLite database and create tables if they don't exist"""
-        try:
-            self.db_connection = sqlite3.connect('trading_bot.db')
-            
-            # Create trades table
-            cursor = self.db_connection.cursor()
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS trades (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp TEXT NOT NULL,
-                    symbol TEXT NOT NULL,
-                    signal TEXT NOT NULL,
-                    entry_price REAL NOT NULL,
-                    exit_price REAL,
-                    quantity REAL NOT NULL,
-                    pnl REAL,
-                    pnl_percent REAL,
-                    reason TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            # Create performance metrics table
-            cursor.execute('''
-                CREATE TABLE IF NOT EXISTS performance_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    total_trades INTEGER,
-                    winning_trades INTEGER,
-                    losing_trades INTEGER,
-                    total_pnl REAL,
-                    win_rate REAL,
-                    avg_win REAL,
-                    avg_loss REAL,
-                    largest_win REAL,
-                    largest_loss REAL,
-                    sharpe_ratio REAL,
-                    max_drawdown REAL,
-                    profit_factor REAL,
-                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            ''')
-            
-            self.db_connection.commit()
-            self.logger.info("Database initialized successfully")
-        except Exception as e:
-            self.logger.error(f"Failed to initialize database: {e}")
-    
-    async def close_database(self):
-        """Close database connection"""
-        if self.db_connection:
-            self.db_connection.close()
-            self.logger.info("Database connection closed")
-    
-    def get_usdt_balance(self) -> float:
-        """Get current USDT balance"""
-        if 'USDT' in self.balance:
-            return self.balance['USDT']
-        return 0.0
-    
-    async def update_balances(self):
-        """Update account balances"""
-        account_info = await self.get_account_info()
-        if 'USDT' in self.balance:
-            self.current_balance = self.balance['USDT']
     
     async def close_client(self):
         """Close the Binance client"""
@@ -185,266 +98,17 @@ class BinanceTradingBot:
             await self.client.close_connection()
             self.logger.info("Binance client closed")
     
-    async def get_account_info(self) -> Dict:
-        """Get account information"""
-        try:
-            account_info = await self.client.get_account()
-            self.balance = {asset['asset']: float(asset['free']) for asset in account_info['balances']}
-            return account_info
-        except BinanceAPIException as e:
-            self.logger.error(f"Error getting account info: {e}")
-            return {}
+    async def update_balances(self):
+        """Update account balances"""
+        account_info = await self.risk_manager.get_account_info()
+        if 'USDT' in self.risk_manager.balance:
+            self.balance = self.risk_manager.balance
     
-    async def get_symbol_info(self, symbol: str) -> Dict:
-        """Get information about a specific symbol"""
-        try:
-            return await self.client.get_symbol_info(symbol)
-        except BinanceAPIException as e:
-            self.logger.error(f"Error getting symbol info for {symbol}: {e}")
-            return {}
-    
-    async def get_ticker_price(self, symbol: str) -> float:
-        """Get current price for a symbol"""
-        try:
-            ticker = await self.client.get_symbol_ticker(symbol=symbol)
-            return float(ticker['price'])
-        except BinanceAPIException as e:
-            self.logger.error(f"Error getting ticker price for {symbol}: {e}")
-            return 0.0
-    
-    async def get_klines(self, symbol: str, interval: str, limit: int = 500) -> List:
-        """Get kline/candlestick data for a symbol"""
-        try:
-            klines = await self.client.get_klines(
-                symbol=symbol,
-                interval=interval,
-                limit=limit
-            )
-            return klines
-        except BinanceAPIException as e:
-            self.logger.error(f"Error getting klines for {symbol}: {e}")
-            return []
-    
-    def calculate_sma(self, prices: List[float], period: int) -> float:
-        """Calculate Simple Moving Average"""
-        if len(prices) < period:
-            return 0.0
-        return sum(prices[-period:]) / period
-    
-    def calculate_ema(self, prices: List[float], period: int) -> float:
-        """Calculate Exponential Moving Average"""
-        if len(prices) < period:
-            return 0.0
-        
-        multiplier = 2 / (period + 1)
-        ema = prices[0]  # Start with first price
-        
-        for price in prices[1:]:
-            ema = (price - ema) * multiplier + ema
-        
-        return ema
-    
-    def calculate_rsi(self, prices: List[float], period: int = 14) -> float:
-        """Calculate Relative Strength Index"""
-        if len(prices) < period + 1:
-            return 50.0  # Neutral value if not enough data
-        
-        gains = []
-        losses = []
-        
-        for i in range(1, len(prices)):
-            diff = prices[i] - prices[i-1]
-            if diff > 0:
-                gains.append(diff)
-                losses.append(0)
-            else:
-                gains.append(0)
-                losses.append(abs(diff))
-        
-        # Calculate average gain and loss
-        avg_gain = sum(gains[-period:]) / period
-        avg_loss = sum(losses[-period:]) / period
-        
-        if avg_loss == 0:
-            return 100.0
-        
-        rs = avg_gain / avg_loss
-        rsi = 100 - (100 / (1 + rs))
-        
-        return rsi
-    
-    def calculate_macd(self, prices: List[float], fast: int = 12, slow: int = 26, signal: int = 9) -> tuple:
-        """Calculate MACD indicator"""
-        ema_fast = self.calculate_ema(prices, fast)
-        ema_slow = self.calculate_ema(prices, slow)
-        macd_line = ema_fast - ema_slow
-        
-        # For simplicity, returning just the current values
-        # A full implementation would track the signal line
-        return macd_line, ema_fast, ema_slow
-    
-    async def calculate_volatility(self, klines: List) -> float:
-        """
-        Calculate volatility based on the average range of the last 5 candles
-        
-        Args:
-            klines: List of candle data
-            
-        Returns:
-            float: Volatility measure (average of high-low ranges)
-        """
-        if len(klines) < 5:
-            return 0.0
-        
-        # Get the last 5 candles
-        recent_candles = klines[-5:]
-        
-        total_range = 0.0
-        for candle in recent_candles:
-            high = float(candle[2])
-            low = float(candle[3])
-            total_range += (high - low)
-        
-        avg_range = total_range / len(recent_candles)
-        return avg_range
-
-    async def detect_engulfing_pattern(self, symbol: str, interval: str = None) -> str:
-        """
-        Detect bullish and bearish engulfing patterns with exactly 130% body coverage
-        and check for excessive volatility in the 5 candles before the engulfed candle
-        
-        Returns:
-            'BULLISH_ENGULFING', 'BEARISH_ENGULFING', or 'NONE'
-        """
-        # Use the instance's timeframe if no interval is provided
-        if interval is None:
-            interval = self.timeframe
-            
-        # Get the last 7 candles (5 before engulfed + the engulfed + the engulfing)
-        klines = await self.get_klines(symbol, interval, 7)  # Get 7 to have 5 previous + 1 engulfed + 1 engulfing
-        if len(klines) < 7:
-            return 'NONE'
-        
-        # Check volatility of the 5 candles before the engulfed candle (klines[-7], klines[-6], klines[-5], klines[-4], klines[-3])
-        prev_5_candles = klines[-7:-2]  # The 5 candles before the engulfed candle
-        volatility = await self.calculate_volatility(prev_5_candles)
-        
-        # Calculate average price to normalize volatility measurement
-        total_avg_price = 0.0
-        for candle in prev_5_candles:
-            open_price = float(candle[1])
-            close_price = float(candle[4])
-            total_avg_price += (open_price + close_price) / 2
-        
-        avg_price = total_avg_price / len(prev_5_candles) if prev_5_candles else 1.0
-        normalized_volatility = volatility / avg_price if avg_price > 0 else 0.0
-        
-        # Define a threshold for high volatility (e.g., if average range is more than 3% of price)
-        volatility_threshold = 0.03  # 3% threshold - adjust as needed
-        
-        if normalized_volatility > volatility_threshold:
-            # Too volatile, don't trade
-            return 'NONE'
-        
-        # Get the last 2 candles for engulfing pattern detection
-        prev_candle = klines[-2]       # Previous candle (pattern candle - the one being engulfed)
-        curr_candle = klines[-1]       # Current candle (engulfing candle)
-        
-        # Parse candle data: [open_time, open, high, low, close, volume, ...]
-        prev_open = float(prev_candle[1])
-        prev_high = float(prev_candle[2])
-        prev_low = float(prev_candle[3])
-        prev_close = float(prev_candle[4])
-        
-        curr_open = float(curr_candle[1])
-        curr_high = float(curr_candle[2])
-        curr_low = float(curr_candle[3])
-        curr_close = float(curr_candle[4])
-        
-        # Calculate body sizes (absolute difference between open and close)
-        prev_body_size = abs(prev_close - prev_open)
-        curr_body_size = abs(curr_close - curr_open)
-        
-        # Check that the current candle engulfs the previous candle with exactly 130% body size
-        if prev_close < prev_open:  # Previous candle is bearish (red)
-            # Bullish engulfing: current bullish candle engulfs previous bearish candle with at least 130% body size
-            if (curr_close > curr_open and  # Current candle is bullish (green)
-                curr_close > prev_open and  # Current closes above previous open
-                curr_open < prev_close and  # Current opens below previous close
-                curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
-                return 'BULLISH_ENGULFING'
-        
-        elif prev_close > prev_open:  # Previous candle is bullish (green)
-            # Bearish engulfing: current bearish candle engulfs previous bullish candle with at least 130% body size
-            if (curr_close < curr_open and  # Current candle is bearish (red)
-                curr_close < prev_open and  # Current closes below previous open
-                curr_open > prev_close and  # Current opens above previous close
-                curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
-                return 'BEARISH_ENGULFING'
-        
-        return 'NONE'
-
-    async def get_trading_signal(self, symbol: str) -> str:
-        """
-        Determine trading signal based ONLY on engulfing patterns
-        
-        Returns:
-            'BUY', 'SELL', or 'HOLD'
-        """
-        # Check for engulfing patterns only using the configured timeframe
-        engulfing_signal = await self.detect_engulfing_pattern(symbol)
-        
-        if engulfing_signal == 'BULLISH_ENGULFING':
-            return 'BUY'
-        elif engulfing_signal == 'BEARISH_ENGULFING':
-            return 'SELL'
-        else:
-            return 'HOLD'  # Only trade on engulfing patterns
-
-    async def get_trading_signal_with_price(self, symbol: str):
-        """
-        Determine trading signal based ONLY on engulfing patterns and return the limit price
-        
-        Returns:
-            tuple: (signal, limit_price) where signal is 'BUY', 'SELL', or 'HOLD' and limit_price is float or None
-        """
-        # Get the last 2 candles to determine the engulfing pattern and the opening price of the engulfed candle
-        klines = await self.get_klines(symbol, self.timeframe, 3)
-        if len(klines) < 2:
-            return 'HOLD', None
-        
-        # Get the last 2 candles
-        prev_candle = klines[-2]       # Previous candle (the one that was engulfed)
-        curr_candle = klines[-1]       # Current candle (engulfing candle)
-        
-        # Parse candle data: [open_time, open, high, low, close, volume, ...]
-        prev_open = float(prev_candle[1])
-        prev_high = float(prev_candle[2])
-        prev_low = float(prev_candle[3])
-        prev_close = float(prev_candle[4])
-        
-        # Calculate the body of the engulfed candle (absolute difference between open and close)
-        prev_body_size = abs(prev_close - prev_open)
-        
-        # Calculate the body of the engulfed candle (absolute difference between open and close)
-        prev_body_size = abs(prev_close - prev_open)
-        
-        # Calculate entry price offset as 30% of the body
-        entry_price_offset = prev_body_size * 0.30
-        
-        # Check for engulfing patterns only using the configured timeframe
-        engulfing_signal = await self.detect_engulfing_pattern(symbol)
-        
-        if engulfing_signal == 'BULLISH_ENGULFING':
-            # For bullish engulfing, place buy limit at 30% LOWER than the open of the engulfed candle
-            entry_price = prev_open - entry_price_offset
-            return 'BUY', entry_price
-        elif engulfing_signal == 'BEARISH_ENGULFING':
-            # For bearish engulfing, place sell limit at 30% HIGHER than the open of the engulfed candle
-            entry_price = prev_open + entry_price_offset
-            return 'SELL', entry_price
-        else:
-            return 'HOLD', None  # Only trade on engulfing patterns
+    def get_usdt_balance(self) -> float:
+        """Get current USDT balance"""
+        if 'USDT' in self.balance:
+            return self.balance['USDT']
+        return 0.0
     
     async def place_order(self, symbol: str, side: str, quantity: float, order_type: str = ORDER_TYPE_MARKET, limit_price: float = None) -> Dict:
         """
@@ -471,7 +135,7 @@ class BinanceTradingBot:
                     price_str = str(limit_price)
                 else:
                     # For limit orders, we'd need to calculate a price
-                    current_price = await self.get_ticker_price(symbol)
+                    current_price = await self.risk_manager.get_ticker_price(symbol)
                     price_str = str(current_price * 1.01 if side == SIDE_BUY else current_price * 0.99)
                 
                 order = await self.client.order_limit(
@@ -485,7 +149,7 @@ class BinanceTradingBot:
             
             self.logger.info(f"Order placed: {order}")
             return order
-        except BinanceAPIException as e:
+        except Exception as e:
             self.logger.error(f"Error placing order for {symbol}: {e}")
             return {}
 
@@ -501,7 +165,7 @@ class BinanceTradingBot:
         if signal == 'HOLD':
             return
         
-        quantity = await self.calculate_position_size(symbol)
+        quantity = await self.risk_manager.calculate_position_size(symbol)
         
         if quantity <= 0:
             self.logger.warning(f"Insufficient funds or invalid quantity for {symbol}")
@@ -523,240 +187,6 @@ class BinanceTradingBot:
                 await self.place_stop_loss_order(symbol, signal, quantity, limit_price)
         else:
             self.logger.error(f"Failed to execute {signal} order for {symbol}")
-
-    async def monitor_trade_closure(self, symbol: str, entry_price: float, quantity: float, signal: str, initial_order_id: str):
-        """
-        Monitor a trade for closure (stop-loss or take-profit execution)
-        
-        Args:
-            symbol: Trading pair
-            entry_price: Price at which trade was entered
-            quantity: Quantity traded
-            signal: Original signal ('BUY' or 'SELL')
-            initial_order_id: ID of the initial order
-        """
-        # This is a simplified version - in a real implementation, 
-        # you would need to continuously check order status
-        # For now, we'll just simulate tracking when orders are filled
-        # by monitoring account activity or order status
-        pass
-    
-    async def track_trade(self, symbol: str, signal: str, entry_price: float, quantity: float, exit_price: float, pnl: float, reason: str = ""):
-        """
-        Track completed trade and update performance metrics
-        
-        Args:
-            symbol: Trading pair
-            signal: Trading signal ('BUY' or 'SELL')
-            entry_price: Price at which trade was entered
-            quantity: Quantity traded
-            exit_price: Price at which trade was exited
-            pnl: Profit or loss in USDT
-            reason: Reason for exit ('stop_loss', 'take_profit', 'manual')
-        """
-        timestamp = datetime.now().isoformat()
-        pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price != 0 else 0
-        
-        # Insert trade into database
-        if self.db_connection:
-            cursor = self.db_connection.cursor()
-            cursor.execute('''
-                INSERT INTO trades (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason))
-            self.db_connection.commit()
-        
-        # Update in-memory tracking
-        trade = {
-            'timestamp': timestamp,
-            'symbol': symbol,
-            'signal': signal,
-            'entry_price': entry_price,
-            'exit_price': exit_price,
-            'quantity': quantity,
-            'pnl': pnl,
-            'pnl_percent': pnl_percent,
-            'reason': reason
-        }
-        
-        self.trade_history.append(trade)
-        self.performance_metrics['total_trades'] += 1
-        
-        # Update win/loss counts
-        if pnl > 0:
-            self.performance_metrics['winning_trades'] += 1
-        else:
-            self.performance_metrics['losing_trades'] += 1
-        
-        # Update total PnL
-        self.performance_metrics['total_pnl'] += pnl
-        
-        # Update largest win/loss
-        if pnl > self.performance_metrics['largest_win']:
-            self.performance_metrics['largest_win'] = pnl
-        if pnl < self.performance_metrics['largest_loss']:
-            self.performance_metrics['largest_loss'] = pnl
-        
-        # Update averages
-        wins = self.performance_metrics['winning_trades']
-        losses = self.performance_metrics['losing_trades']
-        
-        if wins > 0:
-            total_wins = sum([t['pnl'] for t in self.trade_history if t['pnl'] > 0])
-            self.performance_metrics['avg_win'] = total_wins / wins
-        
-        if losses > 0:
-            total_losses = sum([t['pnl'] for t in self.trade_history if t['pnl'] < 0])
-            self.performance_metrics['avg_loss'] = total_losses / losses
-        
-        # Update win rate
-        if self.performance_metrics['total_trades'] > 0:
-            self.performance_metrics['win_rate'] = (wins / self.performance_metrics['total_trades']) * 100
-        
-        # Save trade to CSV
-        self.save_trade_to_csv(trade)
-        
-        self.logger.info(f"Trade tracked: {symbol} {signal} at {entry_price}, exit at {exit_price}, PnL: {pnl:.4f} USDT ({reason})")
-    
-    def save_trade_to_csv(self, trade: dict):
-        """Save trade to CSV file for analysis"""
-        filename = f"trade_history_{datetime.now().strftime('%Y-%m-%d')}.csv"
-        file_exists = os.path.isfile(filename)
-        
-        with open(filename, 'a', newline='') as csvfile:
-            fieldnames = ['timestamp', 'symbol', 'signal', 'entry_price', 'exit_price', 'quantity', 'pnl', 'pnl_percent', 'reason']
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            
-            if not file_exists:
-                writer.writeheader()
-            
-            writer.writerow(trade)
-    
-    def calculate_performance_metrics(self):
-        """Calculate comprehensive performance metrics"""
-        if not self.trade_history:
-            return
-        
-        # Calculate additional metrics
-        pnl_values = [trade['pnl'] for trade in self.trade_history]
-        
-        # Calculate Sharpe Ratio (simplified)
-        if len(pnl_values) > 1:
-            avg_return = sum(pnl_values) / len(pnl_values)
-            std_dev = (sum([(x - avg_return) ** 2 for x in pnl_values]) / len(pnl_values)) ** 0.5 if len(pnl_values) > 1 else 0
-            self.performance_metrics['sharpe_ratio'] = avg_return / std_dev if std_dev != 0 else 0
-        
-        # Calculate Max Drawdown (simplified)
-        cumulative_pnl = 0
-        peak = 0
-        max_drawdown = 0
-        
-        for trade in self.trade_history:
-            cumulative_pnl += trade['pnl']
-            if cumulative_pnl > peak:
-                peak = cumulative_pnl
-            drawdown = peak - cumulative_pnl
-            if drawdown > max_drawdown:
-                max_drawdown = drawdown
-        
-        self.performance_metrics['max_drawdown'] = max_drawdown
-        
-        # Calculate Profit Factor
-        gross_profits = sum([trade['pnl'] for trade in self.trade_history if trade['pnl'] > 0])
-        gross_losses = abs(sum([trade['pnl'] for trade in self.trade_history if trade['pnl'] < 0]))
-        self.performance_metrics['profit_factor'] = gross_profits / gross_losses if gross_losses != 0 else float('inf')
-    
-    def print_performance_report(self):
-        """Print a comprehensive performance report"""
-        self.calculate_performance_metrics()
-        
-        print("\n" + "="*60)
-        print("TRADING PERFORMANCE REPORT")
-        print("="*60)
-        print(f"Total Trades: {self.performance_metrics['total_trades']}")
-        print(f"Winning Trades: {self.performance_metrics['winning_trades']}")
-        print(f"Losing Trades: {self.performance_metrics['losing_trades']}")
-        print(f"Win Rate: {self.performance_metrics['win_rate']:.2f}%")
-        print(f"Total PnL: {self.performance_metrics['total_pnl']:.4f} USDT")
-        print(f"Avg Win: {self.performance_metrics['avg_win']:.4f} USDT")
-        print(f"Avg Loss: {self.performance_metrics['avg_loss']:.4f} USDT")
-        print(f"Largest Win: {self.performance_metrics['largest_win']:.4f} USDT")
-        print(f"Largest Loss: {self.performance_metrics['largest_loss']:.4f} USDT")
-        print(f"Sharpe Ratio: {self.performance_metrics['sharpe_ratio']:.4f}")
-        print(f"Max Drawdown: {self.performance_metrics['max_drawdown']:.4f} USDT")
-        print(f"Profit Factor: {self.performance_metrics['profit_factor']:.4f}")
-        print("="*60)
-    
-    async def get_trade_history_from_db(self, limit: int = 100) -> List[Dict]:
-        """Retrieve trade history from database"""
-        if not self.db_connection:
-            return []
-        
-        cursor = self.db_connection.cursor()
-        cursor.execute('''
-            SELECT * FROM trades 
-            ORDER BY timestamp DESC 
-            LIMIT ?
-        ''', (limit,))
-        
-        rows = cursor.fetchall()
-        columns = [description[0] for description in cursor.description]
-        
-        trades = []
-        for row in rows:
-            trade = dict(zip(columns, row))
-            trades.append(trade)
-        
-        return trades
-    
-    async def get_latest_performance_metrics(self) -> Dict:
-        """Retrieve latest performance metrics from database"""
-        if not self.db_connection:
-            return {}
-        
-        cursor = self.db_connection.cursor()
-        cursor.execute('''
-            SELECT * FROM performance_metrics 
-            ORDER BY recorded_at DESC 
-            LIMIT 1
-        ''')
-        
-        row = cursor.fetchone()
-        if row:
-            columns = [description[0] for description in cursor.description]
-            return dict(zip(columns, row))
-        
-        return {}
-    
-    async def save_performance_snapshot(self):
-        """Save current performance metrics to database"""
-        if not self.db_connection:
-            return
-        
-        cursor = self.db_connection.cursor()
-        cursor.execute('''
-            INSERT INTO performance_metrics (
-                total_trades, winning_trades, losing_trades, 
-                total_pnl, win_rate, avg_win, avg_loss, 
-                largest_win, largest_loss, sharpe_ratio, 
-                max_drawdown, profit_factor
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            self.performance_metrics['total_trades'],
-            self.performance_metrics['winning_trades'],
-            self.performance_metrics['losing_trades'],
-            self.performance_metrics['total_pnl'],
-            self.performance_metrics['win_rate'],
-            self.performance_metrics['avg_win'],
-            self.performance_metrics['avg_loss'],
-            self.performance_metrics['largest_win'],
-            self.performance_metrics['largest_loss'],
-            self.performance_metrics['sharpe_ratio'],
-            self.performance_metrics['max_drawdown'],
-            self.performance_metrics['profit_factor']
-        ))
-        
-        self.db_connection.commit()
     
     async def place_stop_loss_order(self, symbol: str, signal: str, quantity: float, entry_price: float = None):
         """
@@ -772,7 +202,7 @@ class BinanceTradingBot:
         """
         # Get the last 2 candles to determine the engulfed candle
         # klines[-2] is the engulfed candle, klines[-1] is the engulfing candle
-        klines = await self.get_klines(symbol, self.timeframe, 3)
+        klines = await self.pattern_detector.get_klines(symbol, self.timeframe, 3)
         if len(klines) < 2:
             self.logger.warning(f"Not enough kline data to set stop-loss for {symbol}")
             return
@@ -833,7 +263,7 @@ class BinanceTradingBot:
             await self.place_take_profit_order(symbol, signal, quantity, entry_price, stop_loss_price)
             
             return stop_loss_order
-        except BinanceAPIException as e:
+        except Exception as e:
             self.logger.error(f"Error placing stop-loss order for {symbol}: {e}")
             return {}
     
@@ -890,69 +320,14 @@ class BinanceTradingBot:
             
             self.logger.info(f"Take-profit order placed for {symbol}: {signal}, Target: {take_profit_price_str}, Quantity: {quantity}")
             return take_profit_order
-        except BinanceAPIException as e:
+        except Exception as e:
             self.logger.error(f"Error placing take-profit order for {symbol}: {e}")
             return {}
-    
-    async def calculate_position_size(self, symbol: str) -> float:
-        """
-        Calculate appropriate position size based on risk management rules
-        Uses either 10% for spot or 3% with leverage for margin based on use_leverage flag
-        """
-        # Get account balance in USDT (or base currency)
-        account_info = await self.get_account_info()
-        if 'USDT' in self.balance:
-            available_balance = self.balance['USDT']
-        else:
-            # Fallback to calculating from account info
-            available_balance = 0
-            for asset in account_info.get('balances', []):
-                if asset['asset'] == 'USDT':
-                    available_balance = float(asset['free'])
-                    break
-        
-        # Determine position size based on leverage setting
-        if self.use_leverage:
-            # Use margin trading with leverage (3% base position * leverage)
-            leverage = getattr(self, 'leverage', 1)  # Use leverage from config, default to 1 if not set
-            base_position_size = self.risk_management['max_position_size_margin']  # 3% for margin
-            position_value = available_balance * base_position_size * leverage
-        else:
-            # Use spot trading (10% of account)
-            base_position_size = self.risk_management['max_position_size_spot']  # 10% for spot
-            position_value = available_balance * base_position_size  # No additional leverage
-        
-        # Get current price to calculate quantity
-        current_price = await self.get_ticker_price(symbol)
-        
-        if current_price <= 0:
-            self.logger.warning(f"Invalid price for {symbol}: {current_price}")
-            return 0.0
-        
-        quantity = position_value / current_price
-        
-        # Get symbol info for lot size constraints
-        symbol_info = await self.get_symbol_info(symbol)
-        if symbol_info:
-            for filter_item in symbol_info['filters']:
-                if filter_item['filterType'] == 'LOT_SIZE':
-                    min_qty = float(filter_item['minQty'])
-                    max_qty = float(filter_item['maxQty'])
-                    step_size = float(filter_item['stepSize'])
-                    
-                    # Adjust quantity to fit within limits
-                    quantity = max(min_qty, min(quantity, max_qty))
-                    
-                    # Round to step size
-                    quantity = round((quantity - (quantity % step_size)) * 100000000) / 100000000
-                    break
-        
-        return quantity
     
     async def run_strategy(self, symbol: str):
         """Run a single strategy iteration for a symbol"""
         try:
-            signal, limit_price = await self.get_trading_signal_with_price(symbol)
+            signal, limit_price = await self.pattern_detector.get_trading_signal_with_price(symbol, self.timeframe)
             self.logger.info(f"Signal for {symbol}: {signal}")
             
             await self.execute_trade(symbol, signal, limit_price)
@@ -994,14 +369,14 @@ class BinanceTradingBot:
                     self._iteration_count = 1
                 
                 if self._iteration_count % 10 == 0:  # Print report every 10 cycles
-                    self.print_performance_report()
+                    self.performance_tracker.print_performance_report()
                 
                 # Sleep before next iteration
                 await asyncio.sleep(interval)
         
         except KeyboardInterrupt:
             self.logger.info("Stopping trading bot...")
-            self.print_performance_report()  # Print final report
+            self.performance_tracker.print_performance_report()  # Print final report
         except Exception as e:
             self.logger.error(f"Error in main loop: {e}")
         finally:
@@ -1011,7 +386,7 @@ class BinanceTradingBot:
         """Stop the trading bot"""
         self.is_running = False
         await self.close_client()
-        await self.close_database()
+        self.db_manager.close()
         self.logger.info("Trading bot stopped")
 
 
@@ -1075,7 +450,7 @@ async def main():
     )
     
     # Update risk management settings from config
-    bot.risk_management.update(config.get('risk_management', {}))
+    bot.risk_manager.risk_settings.update(config.get('risk_management', {}))
     
     # Store leverage settings
     bot.leverage = config.get('leverage', 1)  # Default to no leverage if not specified

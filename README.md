@@ -1,14 +1,16 @@
 # Binance Trading Bot
 
-A comprehensive trading bot framework for Binance exchange with advanced pattern recognition capabilities.
+A comprehensive trading bot framework for Binance exchange implementing the 130% Engulfing Pattern strategy with 2% stop-loss and 2.5R take-profit.
 
 ## Features
 
-- **Engulfing Pattern Detection**: Identifies bullish and bearish engulfing patterns with exactly 130% body size requirement on 15-minute candles
-- **Volatility Filter**: Checks volatility of the 3 candles before the engulfed candle to avoid trading during high volatility periods
-- **Limit Orders**: Places limit orders at the opening price of the engulfed (previous) candle
+- **130% Engulfing Pattern Detection**: Identifies bullish and bearish engulfing patterns with exactly 130% body size requirement on 15-minute candles
+- **Precise Entry Points**: Entry at 30% lower than open of engulfed candle for bulls, 30% higher for bears
+- **Volatility Filter**: Checks volatility of the 5 candles before the engulfed candle to avoid trading during high volatility periods
 - **Risk Management**: Configurable risk parameters and position sizing
-- **Stop Loss & Take Profit**: Automatic stop loss and take profit orders with configurable percentages
+- **Stop Loss & Take Profit**: Automatic stop loss at 2% from engulfed candle's low/high and take profit at 2.5R
+- **Comprehensive Performance Tracking**: SQLite database integration with detailed trade history and performance metrics
+- **Modular Architecture**: Well-organized code structure for maintainability and scalability
 - **Binance API Integration**: Full integration with Binance API for trading operations
 
 ## Requirements
@@ -66,6 +68,16 @@ The bot implements a sophisticated engulfing pattern strategy:
 3. Ensures the engulfing candle exceeds the previous candle's high (for bullish) or low (for bearish)
 4. Applies a volatility filter to avoid trading during high volatility periods
 5. Places limit orders at the opening price of the engulfed candle
+
+## Architecture
+
+The bot follows a modular design with the following components:
+
+- **trading_bot.py**: Main bot controller and orchestration
+- **modules/database.py**: Handles all database operations for trade history and performance metrics
+- **modules/performance_tracker.py**: Manages performance metrics and reporting
+- **modules/pattern_detector.py**: Handles all pattern detection logic
+- **modules/risk_manager.py**: Manages risk management and position sizing
 
 ## Risk Management
 
