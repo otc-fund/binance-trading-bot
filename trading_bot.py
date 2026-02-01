@@ -17,7 +17,7 @@ from binance.exceptions import BinanceAPIException
 
 
 class BinanceTradingBot:
-    def __init__(self, api_key: str, api_secret: str, testnet: bool = False):
+    def __init__(self, api_key: str, api_secret: str, testnet: bool = False, timeframe: str = Client.KLINE_INTERVAL_15MINUTE):
         """
         Initialize the trading bot
         
@@ -25,10 +25,12 @@ class BinanceTradingBot:
             api_key: Binance API key
             api_secret: Binance API secret
             testnet: Whether to use Binance testnet
+            timeframe: Candle timeframe for analysis (default: 15 minutes)
         """
         self.api_key = api_key
         self.api_secret = api_secret
         self.testnet = testnet
+        self.timeframe = timeframe
         self.client = None
         self.is_running = False
         self.leverage = 1  # Default to no leverage
@@ -204,7 +206,7 @@ class BinanceTradingBot:
         avg_range = total_range / len(recent_candles)
         return avg_range
 
-    async def detect_engulfing_pattern(self, symbol: str, interval: str = Client.KLINE_INTERVAL_15MINUTE) -> str:
+    async def detect_engulfing_pattern(self, symbol: str, interval: str = None) -> str:
         """
         Detect bullish and bearish engulfing patterns with exactly 130% body coverage
         and check for excessive volatility in the 5 candles before the engulfed candle
@@ -212,6 +214,10 @@ class BinanceTradingBot:
         Returns:
             'BULLISH_ENGULFING', 'BEARISH_ENGULFING', or 'NONE'
         """
+        # Use the instance's timeframe if no interval is provided
+        if interval is None:
+            interval = self.timeframe
+            
         # Get the last 7 candles (5 before engulfed + the engulfed + the engulfing)
         klines = await self.get_klines(symbol, interval, 7)  # Get 7 to have 5 previous + 1 engulfed + 1 engulfing
         if len(klines) < 7:
@@ -283,8 +289,8 @@ class BinanceTradingBot:
         Returns:
             'BUY', 'SELL', or 'HOLD'
         """
-        # Check for engulfing patterns only
-        engulfing_signal = await self.detect_engulfing_pattern(symbol, Client.KLINE_INTERVAL_15MINUTE)
+        # Check for engulfing patterns only using the configured timeframe
+        engulfing_signal = await self.detect_engulfing_pattern(symbol)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
             return 'BUY'
@@ -301,7 +307,7 @@ class BinanceTradingBot:
             tuple: (signal, limit_price) where signal is 'BUY', 'SELL', or 'HOLD' and limit_price is float or None
         """
         # Get the last 2 candles to determine the engulfing pattern and the opening price of the engulfed candle
-        klines = await self.get_klines(symbol, Client.KLINE_INTERVAL_15MINUTE, 3)
+        klines = await self.get_klines(symbol, self.timeframe, 3)
         if len(klines) < 2:
             return 'HOLD', None
         
@@ -312,8 +318,8 @@ class BinanceTradingBot:
         # Parse candle data: [open_time, open, high, low, close, volume, ...]
         prev_open = float(prev_candle[1])  # Opening of the engulfed candle
         
-        # Check for engulfing patterns only
-        engulfing_signal = await self.detect_engulfing_pattern(symbol, Client.KLINE_INTERVAL_15MINUTE)
+        # Check for engulfing patterns only using the configured timeframe
+        engulfing_signal = await self.detect_engulfing_pattern(symbol)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
             # For bullish engulfing, place buy limit at the opening of the engulfed (previous) candle
@@ -416,7 +422,7 @@ class BinanceTradingBot:
         """
         # Get the last 2 candles to determine the engulfed candle
         # klines[-2] is the engulfed candle, klines[-1] is the engulfing candle
-        klines = await self.get_klines(symbol, Client.KLINE_INTERVAL_15MINUTE, 3)
+        klines = await self.get_klines(symbol, self.timeframe, 3)
         if len(klines) < 2:
             self.logger.warning(f"Not enough kline data to set stop-loss for {symbol}")
             return
@@ -682,6 +688,7 @@ def load_config(config_file: str = 'config.json') -> Dict:
             "testnet": True,
             "symbols": ["BTCUSDT", "ETHUSDT"],
             "leverage": 4,  # 4x leverage
+            "timeframe": "15m",  # 15-minute timeframe as default
             "risk_management": {
                 "max_position_size": 0.03,  # 3% per trade as specified
                 "max_daily_loss": 0.05,
@@ -695,11 +702,35 @@ async def main():
     """Main function to run the trading bot"""
     config = load_config()
     
+    # Map string timeframe to Binance interval constant
+    timeframe_map = {
+        "1m": Client.KLINE_INTERVAL_1MINUTE,
+        "3m": Client.KLINE_INTERVAL_3MINUTE,
+        "5m": Client.KLINE_INTERVAL_5MINUTE,
+        "15m": Client.KLINE_INTERVAL_15MINUTE,
+        "30m": Client.KLINE_INTERVAL_30MINUTE,
+        "1h": Client.KLINE_INTERVAL_1HOUR,
+        "2h": Client.KLINE_INTERVAL_2HOUR,
+        "4h": Client.KLINE_INTERVAL_4HOUR,
+        "6h": Client.KLINE_INTERVAL_6HOUR,
+        "8h": Client.KLINE_INTERVAL_8HOUR,
+        "12h": Client.KLINE_INTERVAL_12HOUR,
+        "1d": Client.KLINE_INTERVAL_1DAY,
+        "3d": Client.KLINE_INTERVAL_3DAY,
+        "1w": Client.KLINE_INTERVAL_1WEEK,
+        "1mo": Client.KLINE_INTERVAL_1MONTH,
+    }
+    
+    # Get timeframe from config, default to 15m if not specified
+    timeframe_str = config.get('timeframe', '15m')
+    timeframe = timeframe_map.get(timeframe_str, Client.KLINE_INTERVAL_15MINUTE)
+    
     # Create trading bot instance
     bot = BinanceTradingBot(
         api_key=config['api_key'],
         api_secret=config['api_secret'],
-        testnet=config.get('testnet', False)
+        testnet=config.get('testnet', False),
+        timeframe=timeframe
     )
     
     # Update risk management settings from config
