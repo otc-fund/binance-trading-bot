@@ -78,6 +78,18 @@ The bot follows a modular design with the following components:
 - **modules/performance_tracker.py**: Manages performance metrics and reporting
 - **modules/pattern_detector.py**: Handles all pattern detection logic
 - **modules/risk_manager.py**: Manages risk management and position sizing
+- **ui/app.py**: Web interface for monitoring and controlling the bot
+- **ui/templates/index.html**: Main dashboard UI
+
+## Web Interface
+
+The bot includes a web-based user interface with:
+
+- Real-time bot status monitoring
+- Performance metrics dashboard
+- Trade history visualization
+- Configuration management
+- Bot controls (start, stop, pause)
 
 ## Risk Management
 

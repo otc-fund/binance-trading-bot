@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Binance Trading Bot Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            background-color: #f8f9fa;
+        }
+        .card {
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .status-running {
+            color: #28a745;
+            font-weight: bold;
+        }
+        .status-stopped {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .metric-card {
+            text-align: center;
+            padding: 20px;
+        }
+        .metric-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .metric-title {
+            font-size: 0.9rem;
+            color: #6c757d;
+        }
+        .trade-table th {
+            background-color: #f8f9fa;
+        }
+        .control-btn {
+            margin: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Header -->
+        <nav class="navbar navbar-expand-lg navbar-dark bg-primary mb-4">
+            <div class="container">
+                <a class="navbar-brand" href="#">Binance Trading Bot</a>
+                <div class="navbar-nav ms-auto">
+                    <span id="bot-status" class="navbar-text status-running">Status: Running</span>
+                </div>
+            </div>
+        </nav>
+
+        <!-- Controls Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">Bot Controls</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-success control-btn" onclick="controlBot('start')">Start</button>
+                            <button type="button" class="btn btn-warning control-btn" onclick="controlBot('pause')">Pause</button>
+                            <button type="button" class="btn btn-danger control-btn" onclick="controlBot('stop')">Stop</button>
+                        </div>
+                        <button type="button" class="btn btn-outline-primary control-btn" data-bs-toggle="modal" data-bs-target="#configModal">Configure</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Metrics Section -->
+        <div class="row mb-4">
+            <div class="col-md-2 col-sm-6">
+                <div class="card metric-card">
+                    <div class="metric-value" id="total-trades">0</div>
+                    <div class="metric-title">Total Trades</div>
+                </div>
+            </div>
+            <div class="col-md-2 col-sm-6">
+                <div class="card metric-card">
+                    <div class="metric-value" id="win-rate">0%</div>
+                    <div class="metric-title">Win Rate</div>
+                </div>
+            </div>
+            <div class="col-md-2 col-sm-6">
+                <div class="card metric-card">
+                    <div class="metric-value" id="total-pnl">0.00</div>
+                    <div class="metric-title">Total PnL</div>
+                </div>
+            </div>
+            <div class="col-md-2 col-sm-6">
+                <div class="card metric-card">
+                    <div class="metric-value" id="avg-win">0.00</div>
+                    <div class="metric-title">Avg Win</div>
+                </div>
+            </div>
+            <div class="col-md-2 col-sm-6">
+                <div class="card metric-card">
+                    <div class="metric-value" id="avg-loss">0.00</div>
+                    <div class="metric-title">Avg Loss</div>
+                </div>
+            </div>
+            <div class="col-md-2 col-sm-6">
+                <div class="card metric-card">
+                    <div class="metric-value" id="sharpe-ratio">0.00</div>
+                    <div class="metric-title">Sharpe Ratio</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Charts Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-light">
+                        <h5 class="mb-0">Performance Chart</h5>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="performanceChart" height="300"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Recent Trades Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Recent Trades</h5>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="loadTrades()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-hover trade-table">
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Symbol</th>
+                                        <th>Signal</th>
+                                        <th>Entry Price</th>
+                                        <th>Exit Price</th>
+                                        <th>Quantity</th>
+                                        <th>PnL</th>
+                                        <th>Reason</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="trades-table-body">
+                                    <!-- Trades will be populated here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Modal -->
+    <div class="modal fade" id="configModal" tabindex="-1" aria-labelledby="configModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="configModalLabel">Bot Configuration</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="configForm">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6>General Settings</h6>
+                                <div class="mb-3">
+                                    <label for="api_key" class="form-label">API Key</label>
+                                    <input type="password" class="form-control" id="api_key" placeholder="Enter API Key">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="api_secret" class="form-label">API Secret</label>
+                                    <input type="password" class="form-control" id="api_secret" placeholder="Enter API Secret">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="symbols" class="form-label">Symbols</label>
+                                    <input type="text" class="form-control" id="symbols" placeholder="BTCUSDT,ETHUSDT">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="timeframe" class="form-label">Timeframe</label>
+                                    <select class="form-select" id="timeframe">
+                                        <option value="1m">1m</option>
+                                        <option value="3m">3m</option>
+                                        <option value="5m">5m</option>
+                                        <option value="15m" selected>15m</option>
+                                        <option value="30m">30m</option>
+                                        <option value="1h">1h</option>
+                                        <option value="2h">2h</option>
+                                        <option value="4h">4h</option>
+                                        <option value="6h">6h</option>
+                                        <option value="8h">8h</option>
+                                        <option value="12h">12h</option>
+                                        <option value="1d">1d</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6>Risk Management</h6>
+                                <div class="mb-3">
+                                    <label for="leverage" class="form-label">Leverage</label>
+                                    <input type="number" class="form-control" id="leverage" min="1" max="125" value="4">
+                                </div>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="use_leverage">
+                                    <label class="form-check-label" for="use_leverage">Use Leverage</label>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="testnet" class="form-label">Testnet Mode</label>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" id="testnet" checked>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="max_position_size_margin" class="form-label">Max Position Size (Margin)</label>
+                                    <input type="number" class="form-control" id="max_position_size_margin" step="0.01" value="0.03">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="max_daily_loss" class="form-label">Max Daily Loss</label>
+                                    <input type="number" class="form-control" id="max_daily_loss" step="0.01" value="0.05">
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="saveConfig()">Save Changes</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global variables
+        let performanceChart = null;
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadStatus();
+            loadPerformance();
+            loadTrades();
+            
+            // Load config
+            loadConfig();
+            
+            // Refresh data every 30 seconds
+            setInterval(function() {
+                loadStatus();
+                loadPerformance();
+                loadTrades();
+            }, 30000);
+        });
+
+        // Load bot status
+        function loadStatus() {
+            fetch('/api/status')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('bot-status').textContent = `Status: ${data.status}`;
+                    document.getElementById('bot-status').className = `navbar-text status-${data.status}`;
+                })
+                .catch(error => console.error('Error loading status:', error));
+        }
+
+        // Load performance metrics
+        function loadPerformance() {
+            fetch('/api/performance')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('total-trades').textContent = data.total_trades || 0;
+                    document.getElementById('win-rate').textContent = `${(data.win_rate || 0).toFixed(2)}%`;
+                    document.getElementById('total-pnl').textContent = (data.total_pnl || 0).toFixed(4);
+                    document.getElementById('avg-win').textContent = (data.avg_win || 0).toFixed(4);
+                    document.getElementById('avg-loss').textContent = (data.avg_loss || 0).toFixed(4);
+                    document.getElementById('sharpe-ratio').textContent = (data.sharpe_ratio || 0).toFixed(2);
+                })
+                .catch(error => console.error('Error loading performance:', error));
+        }
+
+        // Load recent trades
+        function loadTrades() {
+            fetch('/api/trades?limit=20')
+                .then(response => response.json())
+                .then(data => {
+                    const tbody = document.getElementById('trades-table-body');
+                    tbody.innerHTML = '';
+                    
+                    data.forEach(trade => {
+                        const row = document.createElement('tr');
+                        
+                        // Format the reason for display
+                        let reasonDisplay = trade.reason || 'N/A';
+                        if (reasonDisplay.length > 15) {
+                            reasonDisplay = reasonDisplay.substring(0, 15) + '...';
+                        }
+                        
+                        row.innerHTML = `
+                            <td>${new Date(trade.timestamp).toLocaleString()}</td>
+                            <td>${trade.symbol}</td>
+                            <td><span class="badge bg-${trade.signal === 'BUY' ? 'success' : 'danger'}">${trade.signal}</span></td>
+                            <td>${parseFloat(trade.entry_price).toFixed(4)}</td>
+                            <td>${parseFloat(trade.exit_price).toFixed(4)}</td>
+                            <td>${parseFloat(trade.quantity).toFixed(6)}</td>
+                            <td class="${parseFloat(trade.pnl) >= 0 ? 'text-success' : 'text-danger'}">${parseFloat(trade.pnl).toFixed(4)}</td>
+                            <td title="${trade.reason || 'N/A'}">${reasonDisplay}</td>
+                        `;
+                        tbody.appendChild(row);
+                    });
+                })
+                .catch(error => console.error('Error loading trades:', error));
+        }
+
+        // Load configuration
+        function loadConfig() {
+            fetch('/api/config')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('api_key').value = data.api_key || '';
+                    document.getElementById('api_secret').value = data.api_secret || '';
+                    document.getElementById('symbols').value = Array.isArray(data.symbols) ? data.symbols.join(',') : data.symbols || 'BTCUSDT,ETHUSDT';
+                    document.getElementById('timeframe').value = data.timeframe || '15m';
+                    document.getElementById('leverage').value = data.leverage || 4;
+                    document.getElementById('use_leverage').checked = data.use_leverage !== false;
+                    document.getElementById('testnet').checked = data.testnet !== false;
+                    
+                    if (data.risk_management) {
+                        document.getElementById('max_position_size_margin').value = data.risk_management.max_position_size_margin || 0.03;
+                        document.getElementById('max_daily_loss').value = data.risk_management.max_daily_loss || 0.05;
+                    }
+                })
+                .catch(error => console.error('Error loading config:', error));
+        }
+
+        // Save configuration
+        function saveConfig() {
+            const config = {
+                api_key: document.getElementById('api_key').value,
+                api_secret: document.getElementById('api_secret').value,
+                symbols: document.getElementById('symbols').value.split(',').map(s => s.trim()),
+                timeframe: document.getElementById('timeframe').value,
+                leverage: parseInt(document.getElementById('leverage').value),
+                use_leverage: document.getElementById('use_leverage').checked,
+                testnet: document.getElementById('testnet').checked,
+                risk_management: {
+                    max_position_size_margin: parseFloat(document.getElementById('max_position_size_margin').value),
+                    max_daily_loss: parseFloat(document.getElementById('max_daily_loss').value)
+                }
+            };
+            
+            fetch('/api/config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('Configuration saved successfully!');
+                    var modal = bootstrap.Modal.getInstance(document.getElementById('configModal'));
+                    modal.hide();
+                } else {
+                    alert('Error saving configuration');
+                }
+            })
+            .catch(error => {
+                console.error('Error saving config:', error);
+                alert('Error saving configuration');
+            });
+        }
+
+        // Control the bot
+        function controlBot(action) {
+            fetch('/api/control', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({action: action})
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status) {
+                    alert(`Bot ${action} command sent successfully`);
+                    loadStatus(); // Refresh status
+                } else {
+                    alert(`Error: ${data.error}`);
+                }
+            })
+            .catch(error => {
+                console.error('Error controlling bot:', error);
+                alert('Error sending command to bot');
+            });
+        }
+    </script>
+</body>
+</html>
