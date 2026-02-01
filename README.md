@@ -4,7 +4,7 @@ A comprehensive trading bot framework for Binance exchange with advanced pattern
 
 ## Features
 
-- **Engulfing Pattern Detection**: Identifies bullish and bearish engulfing patterns with at least 150% body size requirement
+- **Engulfing Pattern Detection**: Identifies bullish and bearish engulfing patterns with exactly 130% body size requirement
 - **Volatility Filter**: Checks volatility of the 3 candles before the engulfed candle to avoid trading during high volatility periods
 - **Limit Orders**: Places limit orders at the opening price of the engulfed (previous) candle
 - **Risk Management**: Configurable risk parameters and position sizing
@@ -47,7 +47,7 @@ Create a `config.json` file with your API credentials and trading parameters:
 The bot implements a sophisticated engulfing pattern strategy:
 
 1. Detects bullish and bearish engulfing patterns
-2. Requires the engulfing candle to have at least 150% of the previous candle's body size
+2. Requires the engulfing candle to have exactly 130% of the previous candle's body size
 3. Ensures the engulfing candle exceeds the previous candle's high (for bullish) or low (for bearish)
 4. Applies a volatility filter to avoid trading during high volatility periods
 5. Places limit orders at the opening price of the engulfed candle
