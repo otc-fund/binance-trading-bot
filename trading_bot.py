@@ -451,7 +451,7 @@ class BinanceTradingBot:
             return
         
         # Convert prices to strings with appropriate precision
-        stop_price_str = f"{stop_price:.8f}"
+        stop_price_str = f"{stop_loss_price:.8f}"
         stop_loss_price_str = f"{stop_loss_price:.8f}"
         
         try:
@@ -600,33 +600,6 @@ class BinanceTradingBot:
                     break
         
         return quantity
-    
-    async def execute_trade(self, symbol: str, signal: str, limit_price: float = None):
-        """Execute a trade based on the given signal"""
-        if signal == 'HOLD':
-            return
-        
-        quantity = await self.calculate_position_size(symbol)
-        
-        if quantity <= 0:
-            self.logger.warning(f"Insufficient funds or invalid quantity for {symbol}")
-            return
-        
-        side = SIDE_BUY if signal == 'BUY' else SIDE_SELL
-        
-        self.logger.info(f"Executing {signal} order for {symbol}, quantity: {quantity}")
-        
-        # Place the order
-        order_result = await self.place_order(symbol, side, quantity)
-        
-        if order_result:
-            self.logger.info(f"Successfully executed {signal} order for {symbol}")
-            
-            # Set up stop-loss order based on engulfing pattern
-            if 'orderId' in order_result:
-                await self.place_stop_loss_order(symbol, signal, quantity, limit_price)
-        else:
-            self.logger.error(f"Failed to execute {signal} order for {symbol}")
     
     async def run_strategy(self, symbol: str):
         """Run a single strategy iteration for a symbol"""
