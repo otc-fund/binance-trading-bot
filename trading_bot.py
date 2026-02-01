@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import os
+import sqlite3
 import sys
 from datetime import datetime
 from typing import Dict, List, Optional
@@ -81,6 +82,9 @@ class BinanceTradingBot:
         }
         self.initial_balance = None
         self.current_balance = None
+        
+        # Database connection
+        self.db_connection = None
     
     async def initialize_client(self):
         """Initialize the Binance client"""
@@ -102,9 +106,66 @@ class BinanceTradingBot:
             await self.update_balances()
             self.initial_balance = self.current_balance = self.get_usdt_balance()
             
+            # Initialize database
+            await self.init_database()
+            
         except Exception as e:
             self.logger.error(f"Failed to initialize Binance client: {e}")
             raise
+    
+    async def init_database(self):
+        """Initialize SQLite database and create tables if they don't exist"""
+        try:
+            self.db_connection = sqlite3.connect('trading_bot.db')
+            
+            # Create trades table
+            cursor = self.db_connection.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS trades (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT NOT NULL,
+                    symbol TEXT NOT NULL,
+                    signal TEXT NOT NULL,
+                    entry_price REAL NOT NULL,
+                    exit_price REAL,
+                    quantity REAL NOT NULL,
+                    pnl REAL,
+                    pnl_percent REAL,
+                    reason TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # Create performance metrics table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS performance_metrics (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    total_trades INTEGER,
+                    winning_trades INTEGER,
+                    losing_trades INTEGER,
+                    total_pnl REAL,
+                    win_rate REAL,
+                    avg_win REAL,
+                    avg_loss REAL,
+                    largest_win REAL,
+                    largest_loss REAL,
+                    sharpe_ratio REAL,
+                    max_drawdown REAL,
+                    profit_factor REAL,
+                    recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            self.db_connection.commit()
+            self.logger.info("Database initialized successfully")
+        except Exception as e:
+            self.logger.error(f"Failed to initialize database: {e}")
+    
+    async def close_database(self):
+        """Close database connection"""
+        if self.db_connection:
+            self.db_connection.close()
+            self.logger.info("Database connection closed")
     
     def get_usdt_balance(self) -> float:
         """Get current USDT balance"""
@@ -480,7 +541,7 @@ class BinanceTradingBot:
         # by monitoring account activity or order status
         pass
     
-    def track_trade(self, symbol: str, signal: str, entry_price: float, quantity: float, exit_price: float, pnl: float, reason: str = ""):
+    async def track_trade(self, symbol: str, signal: str, entry_price: float, quantity: float, exit_price: float, pnl: float, reason: str = ""):
         """
         Track completed trade and update performance metrics
         
@@ -493,15 +554,28 @@ class BinanceTradingBot:
             pnl: Profit or loss in USDT
             reason: Reason for exit ('stop_loss', 'take_profit', 'manual')
         """
+        timestamp = datetime.now().isoformat()
+        pnl_percent = ((exit_price - entry_price) / entry_price) * 100 if entry_price != 0 else 0
+        
+        # Insert trade into database
+        if self.db_connection:
+            cursor = self.db_connection.cursor()
+            cursor.execute('''
+                INSERT INTO trades (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (timestamp, symbol, signal, entry_price, exit_price, quantity, pnl, pnl_percent, reason))
+            self.db_connection.commit()
+        
+        # Update in-memory tracking
         trade = {
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': timestamp,
             'symbol': symbol,
             'signal': signal,
             'entry_price': entry_price,
             'exit_price': exit_price,
             'quantity': quantity,
             'pnl': pnl,
-            'pnl_percent': ((exit_price - entry_price) / entry_price) * 100 if entry_price != 0 else 0,
+            'pnl_percent': pnl_percent,
             'reason': reason
         }
         
@@ -612,6 +686,77 @@ class BinanceTradingBot:
         print(f"Max Drawdown: {self.performance_metrics['max_drawdown']:.4f} USDT")
         print(f"Profit Factor: {self.performance_metrics['profit_factor']:.4f}")
         print("="*60)
+    
+    async def get_trade_history_from_db(self, limit: int = 100) -> List[Dict]:
+        """Retrieve trade history from database"""
+        if not self.db_connection:
+            return []
+        
+        cursor = self.db_connection.cursor()
+        cursor.execute('''
+            SELECT * FROM trades 
+            ORDER BY timestamp DESC 
+            LIMIT ?
+        ''', (limit,))
+        
+        rows = cursor.fetchall()
+        columns = [description[0] for description in cursor.description]
+        
+        trades = []
+        for row in rows:
+            trade = dict(zip(columns, row))
+            trades.append(trade)
+        
+        return trades
+    
+    async def get_latest_performance_metrics(self) -> Dict:
+        """Retrieve latest performance metrics from database"""
+        if not self.db_connection:
+            return {}
+        
+        cursor = self.db_connection.cursor()
+        cursor.execute('''
+            SELECT * FROM performance_metrics 
+            ORDER BY recorded_at DESC 
+            LIMIT 1
+        ''')
+        
+        row = cursor.fetchone()
+        if row:
+            columns = [description[0] for description in cursor.description]
+            return dict(zip(columns, row))
+        
+        return {}
+    
+    async def save_performance_snapshot(self):
+        """Save current performance metrics to database"""
+        if not self.db_connection:
+            return
+        
+        cursor = self.db_connection.cursor()
+        cursor.execute('''
+            INSERT INTO performance_metrics (
+                total_trades, winning_trades, losing_trades, 
+                total_pnl, win_rate, avg_win, avg_loss, 
+                largest_win, largest_loss, sharpe_ratio, 
+                max_drawdown, profit_factor
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            self.performance_metrics['total_trades'],
+            self.performance_metrics['winning_trades'],
+            self.performance_metrics['losing_trades'],
+            self.performance_metrics['total_pnl'],
+            self.performance_metrics['win_rate'],
+            self.performance_metrics['avg_win'],
+            self.performance_metrics['avg_loss'],
+            self.performance_metrics['largest_win'],
+            self.performance_metrics['largest_loss'],
+            self.performance_metrics['sharpe_ratio'],
+            self.performance_metrics['max_drawdown'],
+            self.performance_metrics['profit_factor']
+        ))
+        
+        self.db_connection.commit()
     
     async def place_stop_loss_order(self, symbol: str, signal: str, quantity: float, entry_price: float = None):
         """
@@ -866,6 +1011,7 @@ class BinanceTradingBot:
         """Stop the trading bot"""
         self.is_running = False
         await self.close_client()
+        await self.close_database()
         self.logger.info("Trading bot stopped")
 
 
