@@ -326,26 +326,22 @@ class BinanceTradingBot:
         # Calculate the body of the engulfed candle (absolute difference between open and close)
         prev_body_size = abs(prev_close - prev_open)
         
-        # Calculate entry price at 30% of the body from the open of the engulfed candle
-        # For bullish trades: 30% of the body above the open
-        # For bearish trades: 30% of the body below the open
-        if prev_close > prev_open:  # Previous candle was bullish (green)
-            # For bullish candle, 30% up from open for BUY, 30% down from open for SELL
-            entry_price_offset = prev_body_size * 0.30
-        else:  # Previous candle was bearish (red)
-            # For bearish candle, 30% up from open for BUY, 30% down from open for SELL
-            entry_price_offset = prev_body_size * 0.30
+        # Calculate the body of the engulfed candle (absolute difference between open and close)
+        prev_body_size = abs(prev_close - prev_open)
+        
+        # Calculate entry price offset as 30% of the body
+        entry_price_offset = prev_body_size * 0.30
         
         # Check for engulfing patterns only using the configured timeframe
         engulfing_signal = await self.detect_engulfing_pattern(symbol)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
-            # For bullish engulfing, place buy limit at 30% of the body above the open of the engulfed candle
-            entry_price = prev_open + entry_price_offset
+            # For bullish engulfing, place buy limit at 30% LOWER than the open of the engulfed candle
+            entry_price = prev_open - entry_price_offset
             return 'BUY', entry_price
         elif engulfing_signal == 'BEARISH_ENGULFING':
-            # For bearish engulfing, place sell limit at 30% of the body below the open of the engulfed candle
-            entry_price = prev_open - entry_price_offset
+            # For bearish engulfing, place sell limit at 30% HIGHER than the open of the engulfed candle
+            entry_price = prev_open + entry_price_offset
             return 'SELL', entry_price
         else:
             return 'HOLD', None  # Only trade on engulfing patterns
