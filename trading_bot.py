@@ -10,6 +10,7 @@ import os
 import sys
 from datetime import datetime
 from typing import Dict, List, Optional
+import csv
 
 from binance import AsyncClient, Client
 from binance.enums import *
@@ -59,6 +60,27 @@ class BinanceTradingBot:
             'stop_loss_pct': 0.02,  # 2% stop loss (though stop loss is handled by engulfing pattern)
             'take_profit_pct': 0.05  # 5% take profit (though take profit is handled by 2.5R rule)
         }
+        
+        # Performance tracking
+        self.trade_history = []  # Track all trades
+        self.performance_metrics = {
+            'total_trades': 0,
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'total_pnl': 0.0,
+            'win_rate': 0.0,
+            'avg_win': 0.0,
+            'avg_loss': 0.0,
+            'largest_win': 0.0,
+            'largest_loss': 0.0,
+            'current_streak': 0,
+            'max_streak': 0,
+            'sharpe_ratio': 0.0,
+            'max_drawdown': 0.0,
+            'profit_factor': 0.0
+        }
+        self.initial_balance = None
+        self.current_balance = None
     
     async def initialize_client(self):
         """Initialize the Binance client"""
@@ -75,9 +97,26 @@ class BinanceTradingBot:
                     api_secret=self.api_secret
                 )
             self.logger.info("Binance client initialized successfully")
+            
+            # Initialize balance tracking
+            await self.update_balances()
+            self.initial_balance = self.current_balance = self.get_usdt_balance()
+            
         except Exception as e:
             self.logger.error(f"Failed to initialize Binance client: {e}")
             raise
+    
+    def get_usdt_balance(self) -> float:
+        """Get current USDT balance"""
+        if 'USDT' in self.balance:
+            return self.balance['USDT']
+        return 0.0
+    
+    async def update_balances(self):
+        """Update account balances"""
+        account_info = await self.get_account_info()
+        if 'USDT' in self.balance:
+            self.current_balance = self.balance['USDT']
     
     async def close_client(self):
         """Close the Binance client"""
@@ -423,6 +462,156 @@ class BinanceTradingBot:
                 await self.place_stop_loss_order(symbol, signal, quantity, limit_price)
         else:
             self.logger.error(f"Failed to execute {signal} order for {symbol}")
+
+    async def monitor_trade_closure(self, symbol: str, entry_price: float, quantity: float, signal: str, initial_order_id: str):
+        """
+        Monitor a trade for closure (stop-loss or take-profit execution)
+        
+        Args:
+            symbol: Trading pair
+            entry_price: Price at which trade was entered
+            quantity: Quantity traded
+            signal: Original signal ('BUY' or 'SELL')
+            initial_order_id: ID of the initial order
+        """
+        # This is a simplified version - in a real implementation, 
+        # you would need to continuously check order status
+        # For now, we'll just simulate tracking when orders are filled
+        # by monitoring account activity or order status
+        pass
+    
+    def track_trade(self, symbol: str, signal: str, entry_price: float, quantity: float, exit_price: float, pnl: float, reason: str = ""):
+        """
+        Track completed trade and update performance metrics
+        
+        Args:
+            symbol: Trading pair
+            signal: Trading signal ('BUY' or 'SELL')
+            entry_price: Price at which trade was entered
+            quantity: Quantity traded
+            exit_price: Price at which trade was exited
+            pnl: Profit or loss in USDT
+            reason: Reason for exit ('stop_loss', 'take_profit', 'manual')
+        """
+        trade = {
+            'timestamp': datetime.now().isoformat(),
+            'symbol': symbol,
+            'signal': signal,
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'quantity': quantity,
+            'pnl': pnl,
+            'pnl_percent': ((exit_price - entry_price) / entry_price) * 100 if entry_price != 0 else 0,
+            'reason': reason
+        }
+        
+        self.trade_history.append(trade)
+        self.performance_metrics['total_trades'] += 1
+        
+        # Update win/loss counts
+        if pnl > 0:
+            self.performance_metrics['winning_trades'] += 1
+        else:
+            self.performance_metrics['losing_trades'] += 1
+        
+        # Update total PnL
+        self.performance_metrics['total_pnl'] += pnl
+        
+        # Update largest win/loss
+        if pnl > self.performance_metrics['largest_win']:
+            self.performance_metrics['largest_win'] = pnl
+        if pnl < self.performance_metrics['largest_loss']:
+            self.performance_metrics['largest_loss'] = pnl
+        
+        # Update averages
+        wins = self.performance_metrics['winning_trades']
+        losses = self.performance_metrics['losing_trades']
+        
+        if wins > 0:
+            total_wins = sum([t['pnl'] for t in self.trade_history if t['pnl'] > 0])
+            self.performance_metrics['avg_win'] = total_wins / wins
+        
+        if losses > 0:
+            total_losses = sum([t['pnl'] for t in self.trade_history if t['pnl'] < 0])
+            self.performance_metrics['avg_loss'] = total_losses / losses
+        
+        # Update win rate
+        if self.performance_metrics['total_trades'] > 0:
+            self.performance_metrics['win_rate'] = (wins / self.performance_metrics['total_trades']) * 100
+        
+        # Save trade to CSV
+        self.save_trade_to_csv(trade)
+        
+        self.logger.info(f"Trade tracked: {symbol} {signal} at {entry_price}, exit at {exit_price}, PnL: {pnl:.4f} USDT ({reason})")
+    
+    def save_trade_to_csv(self, trade: dict):
+        """Save trade to CSV file for analysis"""
+        filename = f"trade_history_{datetime.now().strftime('%Y-%m-%d')}.csv"
+        file_exists = os.path.isfile(filename)
+        
+        with open(filename, 'a', newline='') as csvfile:
+            fieldnames = ['timestamp', 'symbol', 'signal', 'entry_price', 'exit_price', 'quantity', 'pnl', 'pnl_percent', 'reason']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            
+            if not file_exists:
+                writer.writeheader()
+            
+            writer.writerow(trade)
+    
+    def calculate_performance_metrics(self):
+        """Calculate comprehensive performance metrics"""
+        if not self.trade_history:
+            return
+        
+        # Calculate additional metrics
+        pnl_values = [trade['pnl'] for trade in self.trade_history]
+        
+        # Calculate Sharpe Ratio (simplified)
+        if len(pnl_values) > 1:
+            avg_return = sum(pnl_values) / len(pnl_values)
+            std_dev = (sum([(x - avg_return) ** 2 for x in pnl_values]) / len(pnl_values)) ** 0.5 if len(pnl_values) > 1 else 0
+            self.performance_metrics['sharpe_ratio'] = avg_return / std_dev if std_dev != 0 else 0
+        
+        # Calculate Max Drawdown (simplified)
+        cumulative_pnl = 0
+        peak = 0
+        max_drawdown = 0
+        
+        for trade in self.trade_history:
+            cumulative_pnl += trade['pnl']
+            if cumulative_pnl > peak:
+                peak = cumulative_pnl
+            drawdown = peak - cumulative_pnl
+            if drawdown > max_drawdown:
+                max_drawdown = drawdown
+        
+        self.performance_metrics['max_drawdown'] = max_drawdown
+        
+        # Calculate Profit Factor
+        gross_profits = sum([trade['pnl'] for trade in self.trade_history if trade['pnl'] > 0])
+        gross_losses = abs(sum([trade['pnl'] for trade in self.trade_history if trade['pnl'] < 0]))
+        self.performance_metrics['profit_factor'] = gross_profits / gross_losses if gross_losses != 0 else float('inf')
+    
+    def print_performance_report(self):
+        """Print a comprehensive performance report"""
+        self.calculate_performance_metrics()
+        
+        print("\n" + "="*60)
+        print("TRADING PERFORMANCE REPORT")
+        print("="*60)
+        print(f"Total Trades: {self.performance_metrics['total_trades']}")
+        print(f"Winning Trades: {self.performance_metrics['winning_trades']}")
+        print(f"Losing Trades: {self.performance_metrics['losing_trades']}")
+        print(f"Win Rate: {self.performance_metrics['win_rate']:.2f}%")
+        print(f"Total PnL: {self.performance_metrics['total_pnl']:.4f} USDT")
+        print(f"Avg Win: {self.performance_metrics['avg_win']:.4f} USDT")
+        print(f"Avg Loss: {self.performance_metrics['avg_loss']:.4f} USDT")
+        print(f"Largest Win: {self.performance_metrics['largest_win']:.4f} USDT")
+        print(f"Largest Loss: {self.performance_metrics['largest_loss']:.4f} USDT")
+        print(f"Sharpe Ratio: {self.performance_metrics['sharpe_ratio']:.4f}")
+        print(f"Max Drawdown: {self.performance_metrics['max_drawdown']:.4f} USDT")
+        print(f"Profit Factor: {self.performance_metrics['profit_factor']:.4f}")
+        print("="*60)
     
     async def place_stop_loss_order(self, symbol: str, signal: str, quantity: float, entry_price: float = None):
         """
@@ -653,11 +842,21 @@ class BinanceTradingBot:
                 # Wait for all strategies to complete
                 await asyncio.gather(*tasks, return_exceptions=True)
                 
+                # Print performance report every 10 iterations
+                if hasattr(self, '_iteration_count'):
+                    self._iteration_count += 1
+                else:
+                    self._iteration_count = 1
+                
+                if self._iteration_count % 10 == 0:  # Print report every 10 cycles
+                    self.print_performance_report()
+                
                 # Sleep before next iteration
                 await asyncio.sleep(interval)
         
         except KeyboardInterrupt:
             self.logger.info("Stopping trading bot...")
+            self.print_performance_report()  # Print final report
         except Exception as e:
             self.logger.error(f"Error in main loop: {e}")
         finally:
