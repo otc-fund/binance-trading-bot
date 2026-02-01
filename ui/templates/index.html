@@ -231,6 +231,47 @@
                                 </div>
                             </div>
                         </div>
+                        
+                        <hr>
+                        
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h6>Email Notifications</h6>
+                                <div class="form-check form-switch mb-3">
+                                    <input class="form-check-input" type="checkbox" id="enable_notifications">
+                                    <label class="form-check-label" for="enable_notifications">Enable Email Notifications</label>
+                                </div>
+                                
+                                <div class="mb-3">
+                                    <label for="recipient_emails" class="form-label">Recipient Emails (comma separated)</label>
+                                    <input type="text" class="form-control" id="recipient_emails" placeholder="email1@example.com,email2@example.com">
+                                </div>
+                                
+                                <h6>SMTP Settings</h6>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="sender_email" class="form-label">Sender Email</label>
+                                            <input type="email" class="form-control" id="sender_email" placeholder="your-email@gmail.com">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="sender_password" class="form-label">App Password</label>
+                                            <input type="password" class="form-control" id="sender_password" placeholder="Enter app password">
+                                        </div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="smtp_server" class="form-label">SMTP Server</label>
+                                            <input type="text" class="form-control" id="smtp_server" value="smtp.gmail.com">
+                                        </div>
+                                        <div class="mb-3">
+                                            <label for="smtp_port" class="form-label">SMTP Port</label>
+                                            <input type="number" class="form-control" id="smtp_port" value="587">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </form>
                 </div>
                 <div class="modal-footer">
@@ -345,6 +386,20 @@
                         document.getElementById('max_position_size_margin').value = data.risk_management.max_position_size_margin || 0.03;
                         document.getElementById('max_daily_loss').value = data.risk_management.max_daily_loss || 0.05;
                     }
+                    
+                    // Load notification settings
+                    if (data.notifications) {
+                        document.getElementById('enable_notifications').checked = data.notifications.enable_notifications;
+                        document.getElementById('recipient_emails').value = Array.isArray(data.notifications.recipient_emails) ? 
+                            data.notifications.recipient_emails.join(',') : data.notifications.recipient_emails || '';
+                        
+                        if (data.notifications.smtp) {
+                            document.getElementById('sender_email').value = data.notifications.smtp.sender_email || '';
+                            document.getElementById('sender_password').value = data.notifications.smtp.sender_password || '';
+                            document.getElementById('smtp_server').value = data.notifications.smtp.server || 'smtp.gmail.com';
+                            document.getElementById('smtp_port').value = data.notifications.smtp.port || 587;
+                        }
+                    }
                 })
                 .catch(error => console.error('Error loading config:', error));
         }
@@ -362,6 +417,16 @@
                 risk_management: {
                     max_position_size_margin: parseFloat(document.getElementById('max_position_size_margin').value),
                     max_daily_loss: parseFloat(document.getElementById('max_daily_loss').value)
+                },
+                notifications: {
+                    enable_notifications: document.getElementById('enable_notifications').checked,
+                    recipient_emails: document.getElementById('recipient_emails').value.split(',').map(email => email.trim()).filter(email => email),
+                    smtp: {
+                        sender_email: document.getElementById('sender_email').value,
+                        sender_password: document.getElementById('sender_password').value,
+                        server: document.getElementById('smtp_server').value,
+                        port: parseInt(document.getElementById('smtp_port').value)
+                    }
                 }
             };
             

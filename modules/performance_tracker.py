@@ -12,6 +12,7 @@ import os
 sys.path.append(os.path.join(os.path.dirname(__file__), 'modules'))
 
 from modules.database import DatabaseManager
+from modules.notifications import NotificationSystem
 
 
 class PerformanceTracker:
@@ -101,6 +102,9 @@ class PerformanceTracker:
         # Update win rate
         if self.performance_metrics['total_trades'] > 0:
             self.performance_metrics['win_rate'] = (wins / self.performance_metrics['total_trades']) * 100
+        
+        # TODO: Add notification sending here when the trading bot instance is available
+        # For now, this is handled in the main trading bot class
     
     def calculate_performance_metrics(self):
         """Calculate comprehensive performance metrics"""

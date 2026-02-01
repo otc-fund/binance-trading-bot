@@ -80,6 +80,9 @@ The bot follows a modular design with the following components:
 - **modules/risk_manager.py**: Manages risk management and position sizing
 - **ui/app.py**: Web interface for monitoring and controlling the bot
 - **ui/templates/index.html**: Main dashboard UI
+- **modules/notifications.py**: Email notification system
+- **bot_api.py**: API server for communication between UI and bot
+- **run_ui.py**: Convenience script to run both bot API and UI
 
 ## Web Interface
 
@@ -118,6 +121,23 @@ python run_ui.py
 ```
 
 The UI will connect to the running bot instance and provide real-time monitoring and control capabilities.
+
+### Email Notifications
+
+The bot includes an email notification system that can alert you about:
+
+- Trade executions (entries and exits)
+- Performance reports
+- System alerts and errors
+
+To configure email notifications:
+
+1. Set up an email account with SMTP access (Gmail recommended)
+2. For Gmail, you'll need to use an App Password instead of your regular password
+3. Configure the settings in the UI Configuration panel
+4. Enable notifications and add recipient email addresses
+
+The email system supports HTML and plain text formats and can be customized for different types of alerts.
 
 ## Risk Management
 

@@ -86,6 +86,16 @@ class BotAPI:
                         "max_daily_loss": 0.05,
                         "stop_loss_pct": 0.02,
                         "take_profit_pct": 0.05
+                    },
+                    "notifications": {
+                        "enable_notifications": False,
+                        "recipient_emails": [],
+                        "smtp": {
+                            "sender_email": "",
+                            "sender_password": "",  # Use app password for Gmail
+                            "server": "smtp.gmail.com",
+                            "port": 587
+                        }
                     }
                 }
             
@@ -130,6 +140,9 @@ class BotAPI:
             
             # Update risk management settings
             self.bot.risk_manager.risk_settings.update(config.get('risk_management', {}))
+            
+            # Load notification settings
+            self.bot.load_notification_settings(config)
             
             # Store leverage settings
             self.bot.leverage = config.get('leverage', 1)
@@ -192,6 +205,16 @@ class BotAPI:
                     "max_daily_loss": 0.05,
                     "stop_loss_pct": 0.02,
                     "take_profit_pct": 0.05
+                },
+                "notifications": {
+                    "enable_notifications": False,
+                    "recipient_emails": [],
+                    "smtp": {
+                        "sender_email": "",
+                        "sender_password": "",  # Use app password for Gmail
+                        "server": "smtp.gmail.com",
+                        "port": 587
+                    }
                 }
             }
     

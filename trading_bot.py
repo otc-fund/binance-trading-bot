@@ -18,6 +18,7 @@ from modules.database import DatabaseManager
 from modules.performance_tracker import PerformanceTracker
 from modules.pattern_detector import PatternDetector
 from modules.risk_manager import RiskManager
+from modules.notifications import NotificationSystem
 
 
 class BinanceTradingBot:
@@ -55,6 +56,11 @@ class BinanceTradingBot:
         self.performance_tracker = PerformanceTracker(self.db_manager)
         self.pattern_detector = PatternDetector(None, self.timeframe)
         self.risk_manager = RiskManager(None, True, self.leverage)
+        self.notification_system = NotificationSystem()
+        
+        # Load notification settings
+        self.recipient_emails = []
+        self.enable_notifications = False
         
         # Trading parameters
         self.symbols = []  # List of symbols to trade
@@ -185,8 +191,29 @@ class BinanceTradingBot:
             # Set up stop-loss order based on engulfing pattern
             if 'orderId' in order_result:
                 await self.place_stop_loss_order(symbol, signal, quantity, limit_price)
+                
+                # Send trade notification
+                if self.enable_notifications:
+                    trade_data = {
+                        'symbol': symbol,
+                        'signal': signal,
+                        'entry_price': limit_price,
+                        'quantity': quantity,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    # Run notification in background to avoid blocking
+                    import asyncio
+                    asyncio.create_task(self.send_trade_notification_async(trade_data))
         else:
             self.logger.error(f"Failed to execute {signal} order for {symbol}")
+            
+            # Send failure notification
+            if self.enable_notifications:
+                import asyncio
+                asyncio.create_task(self.send_alert_notification_async(
+                    'error', 
+                    f"Failed to execute {signal} order for {symbol}"
+                ))
     
     async def place_stop_loss_order(self, symbol: str, signal: str, quantity: float, entry_price: float = None):
         """
@@ -388,6 +415,36 @@ class BinanceTradingBot:
         await self.close_client()
         self.db_manager.close()
         self.logger.info("Trading bot stopped")
+    
+    async def send_trade_notification_async(self, trade_data: Dict):
+        """Async wrapper for sending trade notifications"""
+        try:
+            self.notification_system.send_trade_notification(self.recipient_emails, trade_data)
+        except Exception as e:
+            self.logger.error(f"Error sending trade notification: {e}")
+    
+    async def send_alert_notification_async(self, alert_type: str, message: str):
+        """Async wrapper for sending alert notifications"""
+        try:
+            self.notification_system.send_alert_notification(self.recipient_emails, alert_type, message)
+        except Exception as e:
+            self.logger.error(f"Error sending alert notification: {e}")
+    
+    def load_notification_settings(self, config: Dict):
+        """Load notification settings from configuration"""
+        notifications_config = config.get('notifications', {})
+        self.recipient_emails = notifications_config.get('recipient_emails', [])
+        self.enable_notifications = notifications_config.get('enable_notifications', False)
+        
+        # Configure SMTP if provided
+        smtp_config = notifications_config.get('smtp', {})
+        if smtp_config:
+            self.notification_system.configure_smtp(
+                sender_email=smtp_config.get('sender_email', ''),
+                sender_password=smtp_config.get('sender_password', ''),
+                smtp_server=smtp_config.get('server', 'smtp.gmail.com'),
+                smtp_port=smtp_config.get('port', 587)
+            )
 
 
 def load_config(config_file: str = 'config.json') -> Dict:
@@ -451,6 +508,9 @@ async def main():
     
     # Update risk management settings from config
     bot.risk_manager.risk_settings.update(config.get('risk_management', {}))
+    
+    # Load notification settings
+    bot.load_notification_settings(config)
     
     # Store leverage settings
     bot.leverage = config.get('leverage', 1)  # Default to no leverage if not specified
