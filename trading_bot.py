@@ -54,7 +54,7 @@ class BinanceTradingBot:
         self.use_leverage = True  # Switch to enable/disable leverage (default: True)
         self.risk_management = {
             'max_position_size_spot': 0.10,  # Max 10% of account per position for spot trading
-            'max_position_size_margin': 0.02,  # Max 2% of account per position for margin trading (before leverage)
+            'max_position_size_margin': 0.03,  # Max 3% of account per position for margin trading (before leverage)
             'max_daily_loss': 0.05,  # Max 5% daily loss
             'stop_loss_pct': 0.02,  # 2% stop loss (though stop loss is handled by engulfing pattern)
             'take_profit_pct': 0.05  # 5% take profit (though take profit is handled by 2.5R rule)
@@ -699,7 +699,7 @@ def load_config(config_file: str = 'config.json') -> Dict:
             "use_leverage": True,  # Enable/disable leverage (True for margin trading, False for spot)
             "timeframe": "15m",  # 15-minute timeframe as default
             "risk_management": {
-                "max_position_size_margin": 0.02,  # 2% per trade as specified (before leverage)
+                "max_position_size_margin": 0.03,  # 3% per trade as specified (before leverage)
                 "max_daily_loss": 0.05,
                 "stop_loss_pct": 0.02,
                 "take_profit_pct": 0.05
