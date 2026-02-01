@@ -168,6 +168,23 @@ class BinanceTradingBot:
         try:
             leverage = getattr(self, 'leverage', 1)
             
+            # Get the symbol's price precision for limit orders
+            price_precision = 8  # Default precision
+            if order_type == ORDER_TYPE_LIMIT and limit_price is not None:
+                try:
+                    symbol_info = await self.client.futures_exchange_info()
+                    symbol_detail = None
+                    for item in symbol_info['symbols']:
+                        if item['symbol'] == symbol:
+                            symbol_detail = item
+                            break
+                    
+                    if symbol_detail:
+                        price_precision = symbol_detail['pricePrecision']
+                except:
+                    # If we can't get symbol info, use default precision
+                    price_precision = 8
+            
             # For futures trading (including testnet), we need to use futures endpoints
             # Check if we're dealing with futures vs spot
             if self.use_leverage:  # Use futures if leverage is enabled
@@ -183,11 +200,12 @@ class BinanceTradingBot:
                     )
                 elif order_type == ORDER_TYPE_LIMIT:
                     if limit_price is not None:
-                        price_str = str(limit_price)
+                        price_str = f"{limit_price:.{price_precision}f}"
                     else:
                         # For limit orders, we'd need to calculate a price
                         current_price = await self.risk_manager.get_ticker_price(symbol)
-                        price_str = str(current_price * 1.01 if side == SIDE_BUY else current_price * 0.99)
+                        adjusted_price = current_price * 1.01 if side == SIDE_BUY else current_price * 0.99
+                        price_str = f"{adjusted_price:.{price_precision}f}"
                     
                     order = await self.client.futures_create_order(
                         symbol=symbol,
@@ -349,6 +367,24 @@ class BinanceTradingBot:
         stop_loss_price_str = f"{stop_loss_price:.8f}"
         
         try:
+            # Get the symbol's price precision
+            symbol_info = await self.client.futures_exchange_info()
+            symbol_detail = None
+            for item in symbol_info['symbols']:
+                if item['symbol'] == symbol:
+                    symbol_detail = item
+                    break
+            
+            if symbol_detail:
+                price_precision = symbol_detail['pricePrecision']
+                # Format prices according to the symbol's precision
+                stop_price_str = f"{stop_loss_price:.{price_precision}f}"
+                stop_loss_price_str = f"{stop_loss_price:.{price_precision}f}"
+            else:
+                # Default to 8 decimal places if symbol info not found
+                stop_price_str = f"{stop_loss_price:.8f}"
+                stop_loss_price_str = f"{stop_loss_price:.8f}"
+
             # Place the stop-loss order
             if signal == 'BUY':
                 # For a long position, we place a stop-loss sell order
@@ -408,10 +444,24 @@ class BinanceTradingBot:
             # Calculate the risk (distance between entry and stop loss)
             risk_distance = abs(entry_price - stop_loss_price)
             
+            # Get the symbol's price precision
+            symbol_info = await self.client.futures_exchange_info()
+            symbol_detail = None
+            for item in symbol_info['symbols']:
+                if item['symbol'] == symbol:
+                    symbol_detail = item
+                    break
+            
+            if symbol_detail:
+                price_precision = symbol_detail['pricePrecision']
+            else:
+                # Default to 8 decimal places if symbol info not found
+                price_precision = 8
+            
             if signal == 'BUY':  # Bullish trade
                 # Take profit at exactly 2.5 times the risk distance above entry
                 take_profit_price = entry_price + (2.5 * risk_distance)
-                take_profit_price_str = f"{take_profit_price:.8f}"
+                take_profit_price_str = f"{take_profit_price:.{price_precision}f}"
                 
                 # Place take-profit order (limit sell order for long position)
                 take_profit_order = await self.client.futures_create_order(
@@ -428,7 +478,7 @@ class BinanceTradingBot:
             elif signal == 'SELL':  # Bearish trade
                 # Take profit at exactly 2.5 times the risk distance below entry
                 take_profit_price = entry_price - (2.5 * risk_distance)
-                take_profit_price_str = f"{take_profit_price:.8f}"
+                take_profit_price_str = f"{take_profit_price:.{price_precision}f}"
                 
                 # Place take-profit order (limit buy order to close short position)
                 take_profit_order = await self.client.futures_create_order(
