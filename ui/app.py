@@ -8,21 +8,18 @@ import os
 import sys
 import json
 from datetime import datetime
-
-# Add the main project directory to the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
-from modules.database import DatabaseManager
-from modules.performance_tracker import PerformanceTracker
+import requests
 
 app = Flask(__name__)
 
-# Initialize database manager
-db_manager = DatabaseManager()
-db_manager.connect()
+# API endpoint for the bot
+BOT_API_URL = 'http://localhost:5001'
 
-# Initialize performance tracker
-perf_tracker = PerformanceTracker(db_manager)
+
+@app.route('/')
+def index():
+    """Main dashboard page"""
+    return render_template('index.html')
 
 
 @app.route('/')
@@ -33,52 +30,77 @@ def index():
 
 @app.route('/api/status')
 def get_bot_status():
-    """Get current bot status"""
-    # For now, return mock status - in a real implementation this would connect to the running bot
-    return jsonify({
-        'status': 'running',  # or 'stopped', 'paused'
-        'running_since': '2024-01-01 12:00:00',
-        'current_symbols': ['BTCUSDT', 'ETHUSDT'],
-        'total_trades': perf_tracker.performance_metrics['total_trades'],
-        'current_balance': 10000.0,  # This would come from the bot
-        'pnl_24h': 150.25  # This would come from the bot
-    })
+    """Get current bot status from the bot API"""
+    try:
+        response = requests.get(f'{BOT_API_URL}/api/status')
+        return jsonify(response.json())
+    except Exception as e:
+        # Return mock data if bot API is not available
+        return jsonify({
+            'status': 'disconnected',
+            'running_since': None,
+            'current_symbols': [],
+            'total_trades': 0,
+            'current_balance': 0.0,
+            'pnl_24h': 0.0
+        })
 
 
 @app.route('/api/performance')
 def get_performance():
-    """Get performance metrics"""
-    perf_tracker.calculate_performance_metrics()
-    return jsonify(perf_tracker.performance_metrics)
+    """Get performance metrics from the bot API"""
+    try:
+        response = requests.get(f'{BOT_API_URL}/api/performance')
+        return jsonify(response.json())
+    except Exception as e:
+        # Return mock data if bot API is not available
+        return jsonify({
+            'total_trades': 0,
+            'winning_trades': 0,
+            'losing_trades': 0,
+            'total_pnl': 0.0,
+            'win_rate': 0.0,
+            'avg_win': 0.0,
+            'avg_loss': 0.0,
+            'largest_win': 0.0,
+            'largest_loss': 0.0,
+            'sharpe_ratio': 0.0,
+            'max_drawdown': 0.0,
+            'profit_factor': 0.0
+        })
 
 
 @app.route('/api/trades')
 def get_trades():
-    """Get recent trades"""
+    """Get recent trades from the bot API"""
     limit = request.args.get('limit', 50, type=int)
-    trades = db_manager.get_trade_history(limit)
-    return jsonify(trades)
+    try:
+        response = requests.get(f'{BOT_API_URL}/api/trades?limit={limit}')
+        return jsonify(response.json())
+    except Exception as e:
+        # Return empty array if bot API is not available
+        return jsonify([])
 
 
 @app.route('/api/config', methods=['GET', 'POST'])
 def get_set_config():
-    """Get or update bot configuration"""
-    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.json')
-    
+    """Get or update bot configuration via the bot API"""
     if request.method == 'POST':
-        # Update config
+        # Update config via bot API
         new_config = request.json
-        with open(config_path, 'w') as f:
-            json.dump(new_config, f, indent=2)
-        return jsonify({'status': 'success'})
+        try:
+            response = requests.post(f'{BOT_API_URL}/api/config', json=new_config)
+            return jsonify(response.json())
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
     
-    # Get config
-    if os.path.exists(config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-    else:
-        # Default config
-        config = {
+    # Get config via bot API
+    try:
+        response = requests.get(f'{BOT_API_URL}/api/config')
+        return jsonify(response.json())
+    except Exception as e:
+        # Return default config if bot API is not available
+        return jsonify({
             "api_key": "",
             "api_secret": "",
             "testnet": True,
@@ -92,26 +114,18 @@ def get_set_config():
                 "stop_loss_pct": 0.02,
                 "take_profit_pct": 0.05
             }
-        }
-    
-    return jsonify(config)
+        })
 
 
 @app.route('/api/control', methods=['POST'])
 def control_bot():
-    """Control the bot (start, stop, pause)"""
+    """Control the bot (start, stop, pause) via the bot API"""
     action = request.json.get('action')
-    
-    # In a real implementation, this would communicate with the running bot
-    # For now, return mock responses
-    if action == 'start':
-        return jsonify({'status': 'started'})
-    elif action == 'stop':
-        return jsonify({'status': 'stopped'})
-    elif action == 'pause':
-        return jsonify({'status': 'paused'})
-    else:
-        return jsonify({'error': 'Invalid action'}), 400
+    try:
+        response = requests.post(f'{BOT_API_URL}/api/control', json={'action': action})
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 if __name__ == '__main__':

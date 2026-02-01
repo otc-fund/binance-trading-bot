@@ -91,6 +91,34 @@ The bot includes a web-based user interface with:
 - Configuration management
 - Bot controls (start, stop, pause)
 
+### Running the UI
+
+1. Install the required dependencies:
+   ```bash
+   cd ui
+   pip install -r requirements.txt
+   ```
+
+2. Run the bot API server (in one terminal):
+   ```bash
+   python bot_api.py
+   ```
+
+3. Run the UI server (in another terminal):
+   ```bash
+   cd ui
+   python app.py
+   ```
+
+4. Open your browser and navigate to `http://localhost:5000`
+
+Alternatively, you can run both with the convenience script:
+```bash
+python run_ui.py
+```
+
+The UI will connect to the running bot instance and provide real-time monitoring and control capabilities.
+
 ## Risk Management
 
 The bot includes robust risk management features:
