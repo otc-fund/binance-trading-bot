@@ -51,8 +51,10 @@ class BinanceTradingBot:
         self.strategies = {}  # Dictionary of trading strategies
         self.positions = {}  # Current positions
         self.balance = {}  # Account balance
+        self.use_leverage = True  # Switch to enable/disable leverage (default: True)
         self.risk_management = {
-            'max_position_size': 0.03,  # Max 3% of account per position (before leverage)
+            'max_position_size_spot': 0.10,  # Max 10% of account per position for spot trading
+            'max_position_size_margin': 0.03,  # Max 3% of account per position for margin trading (before leverage)
             'max_daily_loss': 0.05,  # Max 5% daily loss
             'stop_loss_pct': 0.02,  # 2% stop loss (though stop loss is handled by engulfing pattern)
             'take_profit_pct': 0.05  # 5% take profit (though take profit is handled by 2.5R rule)
@@ -547,7 +549,7 @@ class BinanceTradingBot:
     async def calculate_position_size(self, symbol: str) -> float:
         """
         Calculate appropriate position size based on risk management rules
-        Uses 3% of account per trade with leverage
+        Uses either 10% for spot or 3% with leverage for margin based on use_leverage flag
         """
         # Get account balance in USDT (or base currency)
         account_info = await self.get_account_info()
@@ -561,10 +563,16 @@ class BinanceTradingBot:
                     available_balance = float(asset['free'])
                     break
         
-        # Calculate position size with leverage (3% of account * leverage)
-        leverage = getattr(self, 'leverage', 1)  # Use leverage from config, default to 1 if not set
-        base_position_size = 0.03  # Fixed at 3% as specified
-        position_value = available_balance * base_position_size * leverage
+        # Determine position size based on leverage setting
+        if self.use_leverage:
+            # Use margin trading with leverage (3% base position * leverage)
+            leverage = getattr(self, 'leverage', 1)  # Use leverage from config, default to 1 if not set
+            base_position_size = self.risk_management['max_position_size_margin']  # 3% for margin
+            position_value = available_balance * base_position_size * leverage
+        else:
+            # Use spot trading (10% of account)
+            base_position_size = self.risk_management['max_position_size_spot']  # 10% for spot
+            position_value = available_balance * base_position_size  # No additional leverage
         
         # Get current price to calculate quantity
         current_price = await self.get_ticker_price(symbol)
@@ -688,6 +696,7 @@ def load_config(config_file: str = 'config.json') -> Dict:
             "testnet": True,
             "symbols": ["BTCUSDT", "ETHUSDT"],
             "leverage": 4,  # 4x leverage
+            "use_leverage": True,  # Enable/disable leverage (True for margin trading, False for spot)
             "timeframe": "15m",  # 15-minute timeframe as default
             "risk_management": {
                 "max_position_size": 0.03,  # 3% per trade as specified
@@ -736,8 +745,9 @@ async def main():
     # Update risk management settings from config
     bot.risk_management.update(config.get('risk_management', {}))
     
-    # Store leverage setting
+    # Store leverage settings
     bot.leverage = config.get('leverage', 1)  # Default to no leverage if not specified
+    bot.use_leverage = config.get('use_leverage', True)  # Default to using leverage if not specified
     
     # Run the bot with specified symbols
     symbols = config.get('symbols', ['BTCUSDT'])
