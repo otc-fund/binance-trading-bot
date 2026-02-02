@@ -85,9 +85,37 @@ class RiskManager:
                             }
             
             # Fallback to regular account if futures endpoints fail
-            account_info = await self.client.get_account()
-            self.balance = {asset['asset']: float(asset['free']) for asset in account_info['balances']}
-            return account_info
+            # But check if we're dealing with futures first
+            if hasattr(self.client, 'futures_account_balance_v2'):
+                # Try futures_account_balance_v2 which should be available for futures accounts
+                balance_info = await self.client.futures_account_balance_v2()
+                # Convert futures balance format to standard format
+                if balance_info and isinstance(balance_info, list) and len(balance_info) > 0:
+                    # Look for USDT balance in the futures format
+                    target_assets = ['USDT', 'BUSD', 'FDUSD', 'TUSD']
+                    for asset_name in target_assets:
+                        asset_balance = next((item for item in balance_info if item.get('asset') == asset_name), None)
+                        if asset_balance:
+                            balance_amount = float(asset_balance.get('balance', 0))
+                            available_amount = float(asset_balance.get('availableBalance', 0))
+                            
+                            self.balance = {asset_name: balance_amount}
+                            
+                            # Return in standard account format
+                            return {
+                                'balances': [
+                                    {
+                                        'asset': asset_name,
+                                        'free': str(balance_amount),
+                                        'locked': str(balance_amount - available_amount)
+                                    }
+                                ]
+                            }
+            else:
+                # Regular account fallback (should not be reached if futures methods are available)
+                account_info = await self.client.get_account()
+                self.balance = {asset['asset']: float(asset['free']) for asset in account_info['balances']}
+                return account_info
         except BinanceAPIException as e:
             print(f"Error getting account info: {e}")
             # Return a mock account info structure to prevent errors
