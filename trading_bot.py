@@ -22,6 +22,20 @@ from modules.risk_manager import RiskManager
 from modules.notifications import NotificationSystem
 
 
+
+import logging
+import sys
+
+# Configure logging to write to a file
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('trading_bot.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 class BinanceTradingBot:
     def __init__(self, api_key: str, api_secret: str, testnet: bool = False, timeframe: str = Client.KLINE_INTERVAL_15MINUTE):
         """

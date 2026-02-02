@@ -6,6 +6,9 @@ Handles all pattern detection logic for the trading bot
 from binance import Client
 from typing import List, Tuple
 from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class PatternDetector:
@@ -16,16 +19,16 @@ class PatternDetector:
     async def get_klines(self, symbol: str, interval: str, limit: int = 500) -> List:
         """Get kline/candlestick data for a symbol"""
         try:
-            print(f"DEBUG: Fetching {limit} klines for {symbol} at {interval}")
+            logger.debug(f"Fetching {limit} klines for {symbol} at {interval}")
             klines = await self.client.get_klines(
                 symbol=symbol,
                 interval=interval,
                 limit=limit
             )
-            print(f"DEBUG: Successfully fetched {len(klines)} klines for {symbol}")
+            logger.debug(f"Successfully fetched {len(klines)} klines for {symbol}")
             return klines
         except Exception as e:
-            print(f"Error getting klines for {symbol}: {e}")
+            logger.error(f"Error getting klines for {symbol}: {e}")
             return []
     
     async def calculate_volatility(self, klines: List) -> float:
@@ -131,17 +134,17 @@ class PatternDetector:
                 volume_confirmed = curr_volume > avg_volume * 1.2  # At least 20% above average volume
                 
                 # Log when an engulfing pattern is detected before volatility check
-                print(f"DEBUG: Bullish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
+                logger.debug(f"Bullish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
                 
                 # Log volume information
-                print(f"DEBUG: Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
+                logger.debug(f"Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
                 
                 if normalized_volatility > volatility_threshold:
-                    print(f"DEBUG: Bullish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
+                    logger.debug(f"Bullish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
                 elif not volume_confirmed:
-                    print(f"DEBUG: Bullish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
+                    logger.debug(f"Bullish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
                 else:
-                    print(f"DEBUG: Bullish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
+                    logger.debug(f"Bullish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
                     return 'BULLISH_ENGULFING'
         
         elif prev_close > prev_open:  # Previous candle is bullish (green)
@@ -154,17 +157,17 @@ class PatternDetector:
                 volume_confirmed = curr_volume > avg_volume * 1.2  # At least 20% above average volume
                 
                 # Log when an engulfing pattern is detected before volatility check
-                print(f"DEBUG: Bearish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
+                logger.debug(f"Bearish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
                 
                 # Log volume information
-                print(f"DEBUG: Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
+                logger.debug(f"Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
                 
                 if normalized_volatility > volatility_threshold:
-                    print(f"DEBUG: Bearish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
+                    logger.debug(f"Bearish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
                 elif not volume_confirmed:
-                    print(f"DEBUG: Bearish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
+                    logger.debug(f"Bearish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
                 else:
-                    print(f"DEBUG: Bearish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
+                    logger.debug(f"Bearish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
                     return 'BEARISH_ENGULFING'
         
         return 'NONE'
@@ -206,13 +209,13 @@ class PatternDetector:
         if engulfing_signal == 'BULLISH_ENGULFING':
             # For bullish engulfing, place buy limit at 60% LOWER than the open of the engulfed candle
             entry_price = prev_open - entry_price_offset
-            print(f"DEBUG: Bullish engulfing signal generated for {symbol}, entry price: {entry_price}")
+            logger.debug(f"Bullish engulfing signal generated for {symbol}, entry price: {entry_price}")
             return 'BUY', entry_price
         elif engulfing_signal == 'BEARISH_ENGULFING':
             # For bearish engulfing, place sell limit at 60% HIGHER than the open of the engulfed candle
             entry_price = prev_open + entry_price_offset
-            print(f"DEBUG: Bearish engulfing signal generated for {symbol}, entry price: {entry_price}")
+            logger.debug(f"Bearish engulfing signal generated for {symbol}, entry price: {entry_price}")
             return 'SELL', entry_price
         else:
-            print(f"DEBUG: No engulfing signal for {symbol}, signal: HOLD")
+            logger.debug(f"No engulfing signal for {symbol}, signal: HOLD")
             return 'HOLD', None  # Only trade on engulfing patterns
