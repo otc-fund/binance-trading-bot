@@ -57,6 +57,7 @@ class PatternDetector:
         """
         Detect bullish and bearish engulfing patterns with exactly 130% body coverage
         and check for excessive volatility in the 3 candles before the engulfed candle
+        and volume confirmation on the engulfing candle
         
         Returns:
             'BULLISH_ENGULFING', 'BEARISH_ENGULFING', or 'NONE'
@@ -96,15 +97,28 @@ class PatternDetector:
         prev_high = float(prev_candle[2])
         prev_low = float(prev_candle[3])
         prev_close = float(prev_candle[4])
+        prev_volume = float(prev_candle[5])  # Volume is at index 5
         
         curr_open = float(curr_candle[1])
         curr_high = float(curr_candle[2])
         curr_low = float(curr_candle[3])
         curr_close = float(curr_candle[4])
+        curr_volume = float(curr_candle[5])  # Volume is at index 5
         
         # Calculate body sizes (absolute difference between open and close)
         prev_body_size = abs(prev_close - prev_open)
         curr_body_size = abs(curr_close - curr_open)
+        
+        # Calculate average volume of previous candles to compare against
+        # Look at the last 5 candles to get average volume (excluding current engulfing candle)
+        vol_sum = 0
+        vol_count = 0
+        for i in range(-6, -1):  # From klines[-6] to klines[-2] (previous 5 candles)
+            if abs(i) <= len(klines):  # Make sure we're not out of bounds
+                vol_sum += float(klines[i][5])  # Volume is at index 5
+                vol_count += 1
+        
+        avg_volume = vol_sum / vol_count if vol_count > 0 else 0
         
         # Check that the current candle engulfs the previous candle with exactly 130% body size
         if prev_close < prev_open:  # Previous candle is bearish (red)
@@ -113,13 +127,22 @@ class PatternDetector:
                 curr_close > prev_open and  # Current closes above previous open
                 curr_open < prev_close and  # Current opens below previous close
                 curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
+                # Check volume confirmation - engulfing candle should have higher than average volume
+                volume_confirmed = curr_volume > avg_volume * 1.2  # At least 20% above average volume
+                
                 # Log when an engulfing pattern is detected before volatility check
-                print(f"DEBUG: Bullish engulfing pattern detected for {symbol} at {curr_close}, but checking volatility filter...")
+                print(f"DEBUG: Bullish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
+                
+                # Log volume information
+                print(f"DEBUG: Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
+                
                 if normalized_volatility > volatility_threshold:
                     print(f"DEBUG: Bullish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
+                elif not volume_confirmed:
+                    print(f"DEBUG: Bullish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
                 else:
-                    print(f"DEBUG: Bullish engulfing pattern for {symbol} passed volatility filter ({normalized_volatility:.4f} <= {volatility_threshold:.4f})")
-                return 'BULLISH_ENGULFING'
+                    print(f"DEBUG: Bullish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
+                    return 'BULLISH_ENGULFING'
         
         elif prev_close > prev_open:  # Previous candle is bullish (green)
             # Bearish engulfing: current bearish candle engulfs previous bullish candle with at least 130% body size
@@ -127,13 +150,22 @@ class PatternDetector:
                 curr_close < prev_open and  # Current closes below previous open
                 curr_open > prev_close and  # Current opens above previous close
                 curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
+                # Check volume confirmation - engulfing candle should have higher than average volume
+                volume_confirmed = curr_volume > avg_volume * 1.2  # At least 20% above average volume
+                
                 # Log when an engulfing pattern is detected before volatility check
-                print(f"DEBUG: Bearish engulfing pattern detected for {symbol} at {curr_close}, but checking volatility filter...")
+                print(f"DEBUG: Bearish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
+                
+                # Log volume information
+                print(f"DEBUG: Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
+                
                 if normalized_volatility > volatility_threshold:
                     print(f"DEBUG: Bearish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
+                elif not volume_confirmed:
+                    print(f"DEBUG: Bearish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
                 else:
-                    print(f"DEBUG: Bearish engulfing pattern for {symbol} passed volatility filter ({normalized_volatility:.4f} <= {volatility_threshold:.4f})")
-                return 'BEARISH_ENGULFING'
+                    print(f"DEBUG: Bearish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
+                    return 'BEARISH_ENGULFING'
         
         return 'NONE'
 
