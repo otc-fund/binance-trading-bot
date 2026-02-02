@@ -16,11 +16,13 @@ class PatternDetector:
     async def get_klines(self, symbol: str, interval: str, limit: int = 500) -> List:
         """Get kline/candlestick data for a symbol"""
         try:
+            print(f"DEBUG: Fetching {limit} klines for {symbol} at {interval}")
             klines = await self.client.get_klines(
                 symbol=symbol,
                 interval=interval,
                 limit=limit
             )
+            print(f"DEBUG: Successfully fetched {len(klines)} klines for {symbol}")
             return klines
         except Exception as e:
             print(f"Error getting klines for {symbol}: {e}")
