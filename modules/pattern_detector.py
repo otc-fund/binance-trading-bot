@@ -85,10 +85,6 @@ class PatternDetector:
         # Define a threshold for high volatility (e.g., if average range is more than 3% of price)
         volatility_threshold = 0.03  # 3% threshold - adjust as needed
         
-        if normalized_volatility > volatility_threshold:
-            # Too volatile, don't trade
-            return 'NONE'
-        
         # Get the last 2 candles for engulfing pattern detection
         prev_candle = klines[-2]       # Previous candle (pattern candle - the one being engulfed)
         curr_candle = klines[-1]       # Current candle (engulfing candle)
@@ -115,6 +111,12 @@ class PatternDetector:
                 curr_close > prev_open and  # Current closes above previous open
                 curr_open < prev_close and  # Current opens below previous close
                 curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
+                # Log when an engulfing pattern is detected before volatility check
+                print(f"DEBUG: Bullish engulfing pattern detected for {symbol} at {curr_close}, but checking volatility filter...")
+                if normalized_volatility > volatility_threshold:
+                    print(f"DEBUG: Bullish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
+                else:
+                    print(f"DEBUG: Bullish engulfing pattern for {symbol} passed volatility filter ({normalized_volatility:.4f} <= {volatility_threshold:.4f})")
                 return 'BULLISH_ENGULFING'
         
         elif prev_close > prev_open:  # Previous candle is bullish (green)
@@ -123,6 +125,12 @@ class PatternDetector:
                 curr_close < prev_open and  # Current closes below previous open
                 curr_open > prev_close and  # Current opens above previous close
                 curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
+                # Log when an engulfing pattern is detected before volatility check
+                print(f"DEBUG: Bearish engulfing pattern detected for {symbol} at {curr_close}, but checking volatility filter...")
+                if normalized_volatility > volatility_threshold:
+                    print(f"DEBUG: Bearish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
+                else:
+                    print(f"DEBUG: Bearish engulfing pattern for {symbol} passed volatility filter ({normalized_volatility:.4f} <= {volatility_threshold:.4f})")
                 return 'BEARISH_ENGULFING'
         
         return 'NONE'
@@ -164,10 +172,13 @@ class PatternDetector:
         if engulfing_signal == 'BULLISH_ENGULFING':
             # For bullish engulfing, place buy limit at 60% LOWER than the open of the engulfed candle
             entry_price = prev_open - entry_price_offset
+            print(f"DEBUG: Bullish engulfing signal generated for {symbol}, entry price: {entry_price}")
             return 'BUY', entry_price
         elif engulfing_signal == 'BEARISH_ENGULFING':
             # For bearish engulfing, place sell limit at 60% HIGHER than the open of the engulfed candle
             entry_price = prev_open + entry_price_offset
+            print(f"DEBUG: Bearish engulfing signal generated for {symbol}, entry price: {entry_price}")
             return 'SELL', entry_price
         else:
+            print(f"DEBUG: No engulfing signal for {symbol}, signal: HOLD")
             return 'HOLD', None  # Only trade on engulfing patterns
