@@ -160,6 +160,23 @@
                 </div>
             </div>
         </div>
+
+        <!-- Logs Section -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-light d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">Recent Logs</h5>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="loadLogs()">Refresh</button>
+                    </div>
+                    <div class="card-body">
+                        <div class="log-container" style="max-height: 400px; overflow-y: auto; background-color: #f8f9fa; border: 1px solid #dee2e6; border-radius: 4px; padding: 15px; font-family: monospace; white-space: pre-wrap;">
+                            <pre id="logs-content">Loading logs...</pre>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Configuration Modal -->
@@ -292,6 +309,7 @@
             loadStatus();
             loadPerformance();
             loadTrades();
+            loadLogs();
             
             // Load config
             loadConfig();
@@ -480,6 +498,35 @@
                 alert('Error sending command to bot');
             });
         }
+
+        // Load logs
+        function loadLogs() {
+            fetch('/api/logs')
+                .then(response => response.json())
+                .then(data => {
+                    const logsContent = document.getElementById('logs-content');
+                    if (data.logs) {
+                        logsContent.textContent = data.logs;
+                    } else {
+                        logsContent.textContent = 'No logs available or error loading logs';
+                    }
+                    
+                    // Scroll to bottom to show latest logs
+                    const logContainer = document.querySelector('.log-container');
+                    logContainer.scrollTop = logContainer.scrollHeight;
+                })
+                .catch(error => {
+                    console.error('Error loading logs:', error);
+                    document.getElementById('logs-content').textContent = 'Error loading logs: ' + error.message;
+                });
+        }
+
+        // Auto-refresh logs every 10 seconds
+        setInterval(function() {
+            if (document.visibilityState === 'visible') {
+                loadLogs();
+            }
+        }, 10000);
     </script>
 </body>
 </html>

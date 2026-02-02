@@ -145,6 +145,38 @@ class BotAPI:
         @self.app.route('/api/balance')
         def get_balance():
             return jsonify({'balance': self.get_current_balance()})
+        
+        @self.app.route('/api/logs')
+        def get_logs():
+            """Return recent log entries from the trading bot log file"""
+            try:
+                import os
+                log_file = 'trading_bot.log'
+                if os.path.exists(log_file):
+                    with open(log_file, 'r', encoding='utf-8') as f:
+                        lines = f.readlines()
+                    
+                    # Return the last 50 lines
+                    recent_lines = lines[-50:] if len(lines) > 50 else lines
+                    log_content = ''.join(recent_lines)
+                    
+                    return jsonify({
+                        'logs': log_content,
+                        'count': len(recent_lines),
+                        'total_lines': len(lines)
+                    })
+                else:
+                    return jsonify({
+                        'logs': 'Log file not found',
+                        'count': 0,
+                        'total_lines': 0
+                    })
+            except Exception as e:
+                return jsonify({
+                    'logs': f'Error reading logs: {str(e)}',
+                    'count': 0,
+                    'total_lines': 0
+                })
     
     def get_current_balance(self):
         """Get the current account balance"""

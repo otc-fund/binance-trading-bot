@@ -122,5 +122,15 @@ def control_bot():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/logs')
+def get_logs():
+    """Get recent logs from the bot API"""
+    try:
+        response = requests.get(f'{BOT_API_URL}/api/logs')
+        return jsonify(response.json())
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
