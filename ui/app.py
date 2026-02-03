@@ -133,4 +133,9 @@ def get_logs():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Suppress Flask's default request logging
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.ERROR)  # Only show errors, not access logs
+    
+    app.run(debug=False, host='0.0.0.0', port=5000)  # Changed debug to False to reduce logging

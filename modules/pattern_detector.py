@@ -7,8 +7,20 @@ from binance import Client
 from typing import List, Tuple
 from decimal import Decimal
 import logging
+from datetime import datetime
 
+# Get logger and ensure it has the same handlers as the main trading bot
 logger = logging.getLogger(__name__)
+
+# Add file handler to ensure logging to file
+file_handler = logging.FileHandler('trading_bot.log')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+file_handler.setFormatter(formatter)
+
+# Prevent adding duplicate handlers
+if not logger.handlers:
+    logger.addHandler(file_handler)
+    logger.setLevel(logging.DEBUG)  # Set to DEBUG to capture all log levels
 
 
 class PatternDetector:
@@ -19,16 +31,47 @@ class PatternDetector:
     async def get_klines(self, symbol: str, interval: str, limit: int = 500) -> List:
         """Get kline/candlestick data for a symbol"""
         try:
-            logger.debug(f"Fetching {limit} klines for {symbol} at {interval}")
+            # Console output for visibility and log for file output
+            kline_request_msg = f"[KLINE REQUEST] {datetime.now().strftime('%H:%M:%S')} - Fetching {limit} klines for {symbol} at {interval}"
+            print(kline_request_msg)
+            logger.info(kline_request_msg)
+            
             klines = await self.client.get_klines(
                 symbol=symbol,
                 interval=interval,
                 limit=limit
             )
-            logger.debug(f"Successfully fetched {len(klines)} klines for {symbol}")
+            
+            # Console output for visibility and log for file output
+            kline_response_msg = f"[KLINE RESPONSE] {datetime.now().strftime('%H:%M:%S')} - Successfully fetched {len(klines)} klines for {symbol}"
+            print(kline_response_msg)
+            logger.info(kline_response_msg)
+            
+            # Log details about all klines in the response (up to the last 4 for visibility)
+            if klines:
+                # Determine how many candles to log (up to 4 for the last 4 candles)
+                candles_to_log = min(len(klines), 4)
+                
+                for i in range(1, candles_to_log + 1):
+                    candle = klines[-i]  # Get the i-th most recent candle
+                    position = f"{i}{'st' if i==1 else 'nd' if i==2 else 'rd' if i==3 else 'th'} most recent"
+                    open_price = candle[1]
+                    high = candle[2]
+                    low = candle[3]
+                    close = candle[4]
+                    volume = candle[5]
+                    
+                    # Console output for visibility and log for file output
+                    kline_details_msg = f"[KLINE DETAILS] {datetime.now().strftime('%H:%M:%S')} - {position} candle for {symbol} - O: {open_price}, H: {high}, L: {low}, C: {close}, V: {volume}"
+                    print(kline_details_msg)
+                    logger.info(kline_details_msg)
+            
             return klines
         except Exception as e:
-            logger.error(f"Error getting klines for {symbol}: {e}")
+            # Console output for visibility and log for file output
+            kline_error_msg = f"[KLINE ERROR] {datetime.now().strftime('%H:%M:%S')} - Error getting klines for {symbol}: {e}"
+            print(kline_error_msg)
+            logger.error(kline_error_msg)
             return []
     
     async def calculate_volatility(self, klines: List) -> float:
@@ -58,9 +101,8 @@ class PatternDetector:
 
     async def detect_engulfing_pattern(self, symbol: str, interval: str = None) -> str:
         """
-        Detect bullish and bearish engulfing patterns with exactly 130% body coverage
-        and check for excessive volatility in the 3 candles before the engulfed candle
-        and volume confirmation on the engulfing candle
+        Detect bullish and bearish 130%+ engulfing patterns
+        in the last 4 candles, checking each pair for potential patterns
         
         Returns:
             'BULLISH_ENGULFING', 'BEARISH_ENGULFING', or 'NONE'
@@ -69,105 +111,53 @@ class PatternDetector:
         if interval is None:
             interval = self.timeframe
             
-        # Get the last 6 candles (3 before engulfed + the engulfed + the engulfing)
-        klines = await self.get_klines(symbol, interval, 6)  # Get 6 to have 3 previous + 1 engulfed + 1 engulfing
-        if len(klines) < 6:
+        # Get the last 4 candles to check for engulfing patterns
+        klines = await self.get_klines(symbol, interval, 4)
+        if len(klines) < 2:
             return 'NONE'
         
-        # Check volatility of the 3 candles before the engulfed candle (klines[-6], klines[-5], klines[-4])
-        prev_3_candles = klines[-6:-3]  # The 3 candles before the engulfed candle
-        volatility = await self.calculate_volatility(prev_3_candles)
-        
-        # Calculate average price to normalize volatility measurement
-        total_avg_price = 0.0
-        for candle in prev_3_candles:
-            open_price = float(candle[1])
-            close_price = float(candle[4])
-            total_avg_price += (open_price + close_price) / 2
-        
-        avg_price = total_avg_price / len(prev_3_candles) if prev_3_candles else 1.0
-        normalized_volatility = volatility / avg_price if avg_price > 0 else 0.0
-        
-        # Define a threshold for high volatility (e.g., if average range is more than 3% of price)
-        volatility_threshold = 0.03  # 3% threshold - adjust as needed
-        
-        # Get the last 2 candles for engulfing pattern detection
-        prev_candle = klines[-2]       # Previous candle (pattern candle - the one being engulfed)
-        curr_candle = klines[-1]       # Current candle (engulfing candle)
-        
-        # Parse candle data: [open_time, open, high, low, close, volume, ...]
-        prev_open = float(prev_candle[1])
-        prev_high = float(prev_candle[2])
-        prev_low = float(prev_candle[3])
-        prev_close = float(prev_candle[4])
-        prev_volume = float(prev_candle[5])  # Volume is at index 5
-        
-        curr_open = float(curr_candle[1])
-        curr_high = float(curr_candle[2])
-        curr_low = float(curr_candle[3])
-        curr_close = float(curr_candle[4])
-        curr_volume = float(curr_candle[5])  # Volume is at index 5
-        
-        # Calculate body sizes (absolute difference between open and close)
-        prev_body_size = abs(prev_close - prev_open)
-        curr_body_size = abs(curr_close - curr_open)
-        
-        # Calculate average volume of previous candles to compare against
-        # Look at the last 5 candles to get average volume (excluding current engulfing candle)
-        vol_sum = 0
-        vol_count = 0
-        for i in range(-6, -1):  # From klines[-6] to klines[-2] (previous 5 candles)
-            if abs(i) <= len(klines):  # Make sure we're not out of bounds
-                vol_sum += float(klines[i][5])  # Volume is at index 5
-                vol_count += 1
-        
-        avg_volume = vol_sum / vol_count if vol_count > 0 else 0
-        
-        # Check that the current candle engulfs the previous candle with exactly 130% body size
-        if prev_close < prev_open:  # Previous candle is bearish (red)
-            # Bullish engulfing: current bullish candle engulfs previous bearish candle with at least 130% body size
-            if (curr_close > curr_open and  # Current candle is bullish (green)
-                curr_close > prev_open and  # Current closes above previous open
-                curr_open < prev_close and  # Current opens below previous close
-                curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
-                # Check volume confirmation - engulfing candle should have higher than average volume
-                volume_confirmed = curr_volume > avg_volume * 1.2  # At least 20% above average volume
-                
-                # Log when an engulfing pattern is detected before volatility check
-                logger.debug(f"Bullish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
-                
-                # Log volume information
-                logger.debug(f"Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
-                
-                if normalized_volatility > volatility_threshold:
-                    logger.debug(f"Bullish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
-                elif not volume_confirmed:
-                    logger.debug(f"Bullish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
-                else:
-                    logger.debug(f"Bullish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
+        # Check for engulfing patterns in the last 4 candles by examining each consecutive pair
+        # For 4 candles we have positions [0, 1, 2, 3], we check pairs: [2,3], [1,2], [0,1]
+        # Or in negative indexing: [-2,-1], [-3,-2], [-4,-3]
+        for i in range(len(klines)-2, -1, -1):  # Go backwards from second-to-last to first
+            # Get the current pair of candles
+            prev_candle = klines[i]      # Previous candle (the one being engulfed)
+            curr_candle = klines[i+1]    # Current candle (engulfing candle)
+            
+            # Parse candle data: [open_time, open, high, low, close, volume, ...]
+            prev_open = float(prev_candle[1])
+            prev_high = float(prev_candle[2])
+            prev_low = float(prev_candle[3])
+            prev_close = float(prev_candle[4])
+            
+            curr_open = float(curr_candle[1])
+            curr_high = float(curr_candle[2])
+            curr_low = float(curr_candle[3])
+            curr_close = float(curr_candle[4])
+            
+            # Calculate body sizes (absolute difference between open and close)
+            prev_body_size = abs(prev_close - prev_open)
+            curr_body_size = abs(curr_close - curr_open)
+            
+            # Check that the current candle engulfs the previous candle with at least 130% body size
+            if prev_close < prev_open:  # Previous candle is bearish (red)
+                # Bullish engulfing: current bullish candle engulfs previous bearish candle with at least 130% body size
+                if (curr_close > curr_open and  # Current candle is bullish (green)
+                    curr_close > prev_open and  # Current closes above previous open
+                    curr_open < prev_close and  # Current opens below previous close
+                    curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
+                    # NEW: Allow any 130%+ engulfing pattern without volume/volatility filters
+                    logger.debug(f"Bullish 130%+ engulfing pattern for {symbol} detected at position {i} and approved (volume/volatility checks temporarily disabled)")
                     return 'BULLISH_ENGULFING'
-        
-        elif prev_close > prev_open:  # Previous candle is bullish (green)
-            # Bearish engulfing: current bearish candle engulfs previous bullish candle with at least 130% body size
-            if (curr_close < curr_open and  # Current candle is bearish (red)
-                curr_close < prev_open and  # Current closes below previous open
-                curr_open > prev_close and  # Current opens above previous close
-                curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
-                # Check volume confirmation - engulfing candle should have higher than average volume
-                volume_confirmed = curr_volume > avg_volume * 1.2  # At least 20% above average volume
-                
-                # Log when an engulfing pattern is detected before volatility check
-                logger.debug(f"Bearish engulfing pattern detected for {symbol} at {curr_close}, checking volume and volatility filters...")
-                
-                # Log volume information
-                logger.debug(f"Volume - Current: {curr_volume:.2f}, Avg: {avg_volume:.2f}, Confirmed: {volume_confirmed}")
-                
-                if normalized_volatility > volatility_threshold:
-                    logger.debug(f"Bearish engulfing pattern for {symbol} rejected due to high volatility ({normalized_volatility:.4f} > {volatility_threshold:.4f})")
-                elif not volume_confirmed:
-                    logger.debug(f"Bearish engulfing pattern for {symbol} rejected due to insufficient volume (Curr: {curr_volume:.2f} <= Avg: {avg_volume:.2f})")
-                else:
-                    logger.debug(f"Bearish engulfing pattern for {symbol} passed all filters (Volatility: {normalized_volatility:.4f} <= {volatility_threshold:.4f}, Volume: {curr_volume:.2f} > {avg_volume:.2f})")
+            
+            elif prev_close > prev_open:  # Previous candle is bullish (green)
+                # Bearish engulfing: current bearish candle engulfs previous bullish candle with at least 130% body size
+                if (curr_close < curr_open and  # Current candle is bearish (red)
+                    curr_close < prev_open and  # Current closes below previous open
+                    curr_open > prev_close and  # Current opens above previous close
+                    curr_body_size >= prev_body_size * 1.30):  # Current body is at least 130% of previous body
+                    # NEW: Allow any 130%+ engulfing pattern without volume/volatility filters
+                    logger.debug(f"Bearish 130%+ engulfing pattern for {symbol} detected at position {i} and approved (volume/volatility checks temporarily disabled)")
                     return 'BEARISH_ENGULFING'
         
         return 'NONE'
@@ -197,24 +187,22 @@ class PatternDetector:
         prev_low = float(prev_candle[3])
         prev_close = float(prev_candle[4])
         
-        # Calculate the body of the engulfed candle (absolute difference between open and close)
-        prev_body_size = abs(prev_close - prev_open)
-        
-        # Calculate entry price offset as 60% of the body
-        entry_price_offset = prev_body_size * 0.60
-        
         # Check for engulfing patterns only using the configured timeframe
         engulfing_signal = await self.detect_engulfing_pattern(symbol, interval)
         
         if engulfing_signal == 'BULLISH_ENGULFING':
-            # For bullish engulfing, place buy limit at 60% LOWER than the open of the engulfed candle
-            entry_price = prev_open - entry_price_offset
-            logger.debug(f"Bullish engulfing signal generated for {symbol}, entry price: {entry_price}")
+            # For bullish engulfing, place buy limit at 60% of the way from the low to the high of the engulfed candle
+            # This means 60% of the range added to the low
+            prev_range = prev_high - prev_low
+            entry_price = prev_low + (prev_range * 0.60)
+            logger.debug(f"Bullish engulfing signal generated for {symbol}, entry price: {entry_price} (60% of engulfed candle range from low: {prev_low} to high: {prev_high})")
             return 'BUY', entry_price
         elif engulfing_signal == 'BEARISH_ENGULFING':
-            # For bearish engulfing, place sell limit at 60% HIGHER than the open of the engulfed candle
-            entry_price = prev_open + entry_price_offset
-            logger.debug(f"Bearish engulfing signal generated for {symbol}, entry price: {entry_price}")
+            # For bearish engulfing, place sell limit at 60% of the way from the high to the low of the engulfed candle
+            # This means 60% of the range subtracted from the high
+            prev_range = prev_high - prev_low
+            entry_price = prev_high - (prev_range * 0.60)
+            logger.debug(f"Bearish engulfing signal generated for {symbol}, entry price: {entry_price} (60% of engulfed candle range from high: {prev_high} to low: {prev_low})")
             return 'SELL', entry_price
         else:
             logger.debug(f"No engulfing signal for {symbol}, signal: HOLD")

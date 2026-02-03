@@ -142,15 +142,11 @@ class BotAPI:
             else:
                 return jsonify({'error': 'Invalid action'}), 400
         
-        @self.app.route('/api/balance')
-        def get_balance():
-            return jsonify({'balance': self.get_current_balance()})
-        
-        @self.app.route('/api/logs')
-        def get_logs():
+        def get_logs_func():
             """Return recent log entries from the trading bot log file"""
             try:
                 import os
+                from flask import jsonify
                 log_file = 'trading_bot.log'
                 if os.path.exists(log_file):
                     with open(log_file, 'r', encoding='utf-8') as f:
@@ -177,6 +173,12 @@ class BotAPI:
                     'count': 0,
                     'total_lines': 0
                 })
+        
+        self.app.add_url_rule('/api/logs', 'get_logs', get_logs_func, methods=['GET'])
+
+        @self.app.route('/api/balance')
+        def get_balance():
+            return jsonify({'balance': self.get_current_balance()})
     
     def get_current_balance(self):
         """Get the current account balance"""
@@ -333,6 +335,11 @@ class BotAPI:
     
     def run(self, host='0.0.0.0', port=5001):
         """Run the API server"""
+        # Suppress Flask's default request logging
+        import logging
+        log = logging.getLogger('werkzeug')
+        log.setLevel(logging.ERROR)  # Only show errors, not access logs
+        
         print(f"Starting Bot API server on {host}:{port}")
         self.app.run(debug=False, host=host, port=port, threaded=True)
 
